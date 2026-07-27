@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import traceback
 from datetime import datetime
 from typing import List, Optional
 
@@ -19,7 +20,6 @@ except ImportError:
 
 app = FastAPI(title="Multi-Store Scraper API")
 
-# Konfiguracja CORS (umożliwia połączenie ze stroną na GitHub Pages)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,7 +34,7 @@ SCOPE = [
 ]
 FIXED_SHEET_NAME = "Scraper"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/html, */*",
     "Referer": "https://www.sinsay.com/",
 }
@@ -42,13 +42,19 @@ HEADERS = {
 def get_gspread_client():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
-        creds_dict = json.loads(creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-    else:
-        if not os.path.exists("credentials.json"):
-            raise HTTPException(status_code=500, detail="Brak credentials.json!")
+        try:
+            creds_dict = json.loads(creds_json, strict=False)
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+            return gspread.authorize(creds)
+        except Exception as e:
+            print(f"Błąd parsowania GOOGLE_CREDENTIALS_JSON ze zmiennych środowiskowych: {e}")
+            raise e
+    
+    if os.path.exists("credentials.json"):
         creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", SCOPE)
-    return gspread.authorize(creds)
+        return gspread.authorize(creds)
+        
+    raise Exception("Brak danych uwierzytelniających! Nie znaleziono zmiennej GOOGLE_CREDENTIALS_JSON ani pliku credentials.json.")
 
 # --- BASE SCRAPER CLASS ---
 class BaseScraper:
@@ -128,11 +134,11 @@ class SinsayScraper(BaseScraper):
 
         res = requests.get(cat_url, headers=HEADERS, timeout=15)
         if res.status_code != 200:
-            raise Exception("Nie udało się pobrać strony kategorii Sinsay.")
+            raise Exception(f"Nie udało się pobrać strony kategorii Sinsay (kod odpowiedzi HTTP: {res.status_code}).")
 
         m = re.search(r'window\.getCatalogData\s*=\s*function\(\)\s*\{\s*return\s*(\{.*?\});?\s*\};', res.text, re.S)
         if not m:
-            raise Exception("Nie odnaleziono katalogu produktów.")
+            raise Exception("Nie odnaleziono katalogu produktów na stronie Sinsay.")
 
         js_str = m.group(1)
         data = chompjs.parse_js_object(js_str) if chompjs else json.loads(js_str)
@@ -198,7 +204,7 @@ class SinsayScraper(BaseScraper):
         if max_products:
             all_products = all_products[:max_products]
 
-        # Save to Google Sheets
+        # Zapis do Google Sheets
         client = get_gspread_client()
         sheet = client.open(FIXED_SHEET_NAME).sheet1
         sheet.clear()
@@ -236,7 +242,7 @@ class SinsayScraper(BaseScraper):
             "saved": len(all_products)
         }
 
-# --- PLACEHOLDERY POD LIDLA I BIEDRONKĘ ---
+# --- PLACEHOLDERY ---
 class LidlScraper(BaseScraper):
     def get_categories(self) -> List[dict]:
         return [{"id": "lidl-demo", "name": "Lidl - Funkcja w trakcie przygotowywania"}]
@@ -249,7 +255,7 @@ class BiedronkaScraper(BaseScraper):
     def scrape_products(self, category_id: str, max_products: Optional[int]) -> dict:
         raise HTTPException(status_code=501, detail="Scraper dla Biedronki nie jest jeszcze gotowy.")
 
-# REGESTR SCRAPERÓW
+# REGISTRO SCRAPERÓW
 SCRAPERS = {
     "sinsay": SinsayScraper(),
     "lidl": LidlScraper(),
@@ -281,4 +287,6 @@ def run_scrape(payload: ScrapePayload):
         stats = scraper.scrape_products(payload.category_id, payload.max_products)
         return {"success": True, "stats": stats}
     except Exception as e:
+        print("=== SZCZEGÓŁY BŁĘDU SCRAPOWANIA ===")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
