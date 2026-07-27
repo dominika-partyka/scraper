@@ -109,20 +109,20 @@ class SinsayScraper(BaseScraper):
 
         flat_list = []
         def traverse(nodes, parent_path=""):
-            if not isinstance(nodes, list):
-                return
-            for node in nodes:
-                if not isinstance(node, dict):
-                    continue
-                cat_id = str(node.get("id") or node.get("category_id") or "")
-                name = node.get("name") or node.get("label") or ""
-                children = node.get("children") or node.get("items") or node.get("subcategories") or []
-                curr_path = f"{parent_path} > {name}" if parent_path else name
-                if cat_id and name:
-                    flat_list.append({"id": cat_id, "name": curr_path})
-                if children:
-                    traverse(children, curr_path)
-
+                    if not isinstance(nodes, list):
+                        return
+                    for node in nodes:
+                        if not isinstance(node, dict):
+                            continue
+                        # Najpierw szukamy URL / path, a dopiero w ostateczności ID
+                        cat_id = str(node.get("url") or node.get("path") or node.get("id") or node.get("category_id") or "")
+                        name = node.get("name") or node.get("label") or ""
+                        children = node.get("children") or node.get("items") or node.get("subcategories") or []
+                        curr_path = f"{parent_path} > {name}" if parent_path else name
+                        if cat_id and name:
+                            flat_list.append({"id": cat_id, "name": curr_path})
+                        if children:
+                            traverse(children, curr_path)
         traverse(tree)
         return flat_list
 
