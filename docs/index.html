@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Scraper Hub</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="container">
+        <!-- Pasek kafelków (Shop Selector) -->
+        <div class="store-grid">
+            <div class="store-card" data-shop="sinsay">
+                <img src="Sinsay_logo.png" alt="Sinsay">
+            </div>
+            <div class="store-card" data-shop="lidl">
+                <img src="Lidl_logo.png" alt="Lidl">
+            </div>
+            <div class="store-card" data-shop="biedronka">
+                <img src="Biedronka_logo.png" alt="Biedronka">
+            </div>
+        </div>
+
+        <!-- Sekcja Formularza -->
+        <div id="form-section" class="card hidden">
+            <div class="form-group">
+                <label for="category-select">Wybierz kategorię z listy:</label>
+                <select id="category-select" class="input-field">
+                    <option value="">-- Pobieranie kategorii... --</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="manual-cat-id">Lub wpisz ID / numer kategorii ręcznie:</label>
+                <input type="text" id="manual-cat-id" class="input-field" placeholder="np. 1769">
+            </div>
+
+            <div class="form-group">
+                <label for="max-products">Maksymalna liczba produktów (opcjonalnie):</label>
+                <input type="number" id="max-products" class="input-field" placeholder="np. 100">
+            </div>
+
+            <button id="start-btn" class="btn btn-primary">Uruchom Scrapowanie</button>
+        </div>
+
+        <!-- Sekcja Postępu i Podsumowania -->
+        <div id="status-section" class="card hidden">
+            <div id="loader" class="loader"></div>
+            <div id="status-text" class="status-text">Inicjalizacja scrapera...</div>
+
+            <div id="summary-box" class="summary-box hidden">
+                <h3>Podsumowanie:</h3>
+                <p>• Przeszukano pozycji: <strong id="stat-searched">0</strong></p>
+                <p>• Odrzucono duplikatów: <strong id="stat-duplicates">0</strong></p>
+                <p>• Zapisano do Sheets: <strong id="stat-saved">0</strong></p>
+
+                <a id="sheets-btn" href="https://docs.google.com/spreadsheets" target="_blank" class="btn btn-success">
+                    🟢 Otwórz arkusz Google Sheets
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
