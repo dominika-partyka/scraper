@@ -127,7 +127,12 @@ class SinsayScraper(BaseScraper):
         return flat_list
 
     def scrape_products(self, category_id: str, max_products: Optional[int]) -> dict:
-        cat_url = f"https://www.sinsay.com/pl/pl/category-{category_id}"
+        if category_id.startswith("http"):
+            cat_url = category_id
+        elif "/" in category_id:
+            cat_url = f"https://www.sinsay.com/pl/pl/{category_id.lstrip('/')}"
+        else:
+            cat_url = f"https://www.sinsay.com/pl/pl/category-{category_id}"
         all_products = []
         seen_ids = set()
         duplicates_count = 0
