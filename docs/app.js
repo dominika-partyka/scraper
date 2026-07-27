@@ -1,5 +1,5 @@
 // Podmień poniższy URL na adres ze swojego Rendera po wdrożeniu!
-const API_URL = "https://TWÓJ-SERWER-ON-RENDER.onrender.com"; 
+const API_URL = "https://scraper-backend-lxaw.onrender.com"; 
 
 let selectedShop = null;
 
