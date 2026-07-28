@@ -19,28 +19,57 @@ document.addEventListener("DOMContentLoaded", () => {
     // 1. Obsługa kliknięcia w kafelki sklepów
     storeCards.forEach(card => {
         card.addEventListener("click", async () => {
-            // Zaznacz aktywny kafelek
             storeCards.forEach(c => c.classList.remove("active"));
             card.classList.add("active");
 
             selectedStore = card.getAttribute("data-shop");
-            
-            // Pokaż sekcję formularza
-            if (formSection) formSection.classList.remove("hidden");
 
-            // Jeśli to Sinsay, wstawmy przykładowe kategorie (lub domyślne opcje)
-            if (categorySelect) {
-                categorySelect.innerHTML = `
-                    <option value="">-- Wybierz kategorię z listy --</option>
-                    <option value="1769">Kobieta / Odzież / Sukienki (ID: 1769)</option>
-                    <option value="1770">Kobieta / Odzież / Koszulki (ID: 1770)</option>
-                    <option value="1771">Mężczyzna / Odzież (ID: 1771)</option>
-                `;
+            // Dla Lidla i Biedronki - informacja o przygotowywaniu
+            if (selectedStore === "lidl" || selectedStore === "biedronka") {
+                if (formSection) formSection.classList.add("hidden");
+                if (statusSection) statusSection.classList.remove("hidden");
+                if (loader) loader.style.display = "none";
+                if (summaryBox) summaryBox.classList.add("hidden");
+                
+                const storeName = selectedStore === "lidl" ? "Lidl" : "Biedronka";
+                if (statusText) {
+                    statusText.innerText = `⏳ Obsługa sklepu ${storeName} jest w trakcie przygotowywania...`;
+                }
+                return;
+            }
+
+            // Dla Sinsay - pokazujemy formularz i pobieramy kategorie na żywo
+            if (selectedStore === "sinsay") {
+                if (statusSection) statusSection.classList.add("hidden");
+                if (formSection) formSection.classList.remove("hidden");
+
+                if (categorySelect) {
+                    categorySelect.innerHTML = `<option value="">⌛ Pobieranie aktualnych kategorii z Sinsay...</option>`;
+
+                    try {
+                        const response = await fetch("https://arch.sinsay.com/api/17/category/tree");
+                        const categories = await response.json();
+
+                        categorySelect.innerHTML = `<option value="">-- Wybierz pobraną kategorię --</option>`;
+
+                        categories.forEach(cat => {
+                            if (cat.id && cat.name) {
+                                const option = document.createElement("option");
+                                option.value = cat.id;
+                                option.textContent = `${cat.name} (ID: ${cat.id})`;
+                                categorySelect.appendChild(option);
+                            }
+                        });
+                    } catch (err) {
+                        console.error("Błąd pobierania kategorii:", err);
+                        categorySelect.innerHTML = `<option value="">⚠️ Błąd pobierania - wpisz ID ręcznie niżej</option>`;
+                    }
+                }
             }
         });
     });
 
-    // 2. Obsługa kliknięcia przycisku "Uruchom Scrapowanie"
+    // 2. Obsługa kliknięcia "Uruchom Scrapowanie"
     if (startBtn) {
         startBtn.addEventListener("click", () => {
             const category = manualCatInput.value.trim() || categorySelect.value;
@@ -56,21 +85,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            // Rozpocznij proces
             runScraper(selectedStore, category, maxProducts);
         });
     }
 
-    // 3. Główna funkcja uruchamiająca i sprawdzająca status
+    // 3. Główna funkcja wysyłająca zapytanie do FastAPI i odpytująca o status
     async function runScraper(store, category, maxProducts) {
-        // Pokaż sekcję statusu i ukryj stare podsumowanie
         if (statusSection) statusSection.classList.remove("hidden");
         if (loader) loader.style.display = "block";
         if (summaryBox) summaryBox.classList.add("hidden");
         if (statusText) statusText.innerText = "Inicjalizacja scrapera...";
 
         try {
-            // Wysłanie żądania startowego do backendu
             const response = await fetch(`${BACKEND_URL}/start_scrape`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -88,7 +114,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await response.json();
             const taskId = data.task_id;
 
-            // Odpytywanie o postęp co 1 sekundę
             const interval = setInterval(async () => {
                 try {
                     const statusRes = await fetch(`${BACKEND_URL}/status/${taskId}`);
@@ -105,19 +130,16 @@ document.addEventListener("DOMContentLoaded", () => {
                         if (loader) loader.style.display = "none";
                         statusText.innerText = "Pobieranie zakończone pomyślnie!";
 
-                        // Wypełnij statystyki
                         const statSearched = document.getElementById("stat-searched");
                         const statSaved = document.getElementById("stat-saved");
-                        
+
                         if (statSearched) statSearched.innerText = statusData.total || statusData.current;
                         if (statSaved) statSaved.innerText = statusData.current;
 
-                        // Ustaw bezpośredni link do arkusza Google Sheets
                         if (sheetsBtn && statusData.result_url) {
                             sheetsBtn.href = statusData.result_url;
                         }
 
-                        // Pokaż podsumowanie
                         if (summaryBox) summaryBox.classList.remove("hidden");
 
                     } else if (statusData.status === "failed") {
