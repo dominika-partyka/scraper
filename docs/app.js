@@ -1,86 +1,55 @@
-// Podmień poniższy URL na adres ze swojego Rendera po wdrożeniu!
-const API_URL = "https://scraper-backend-lxaw.onrender.com"; 
+const BACKEND_URL = "https://scraper-backend-lxaw.onrender.com";
 
-let selectedShop = null;
+async function startScraping(store, category) {
+    const statusText = document.getElementById("status-text");
+    const spinner = document.getElementById("spinner");
+    const resultContainer = document.getElementById("result");
 
-document.querySelectorAll('.store-card').forEach(card => {
-    card.addEventListener('click', () => {
-        document.querySelectorAll('.store-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        
-        selectedShop = card.dataset.shop;
-        loadCategories(selectedShop);
-    });
-});
-
-async function loadCategories(shop) {
-    const formSec = document.getElementById('form-section');
-    const select = document.getElementById('category-select');
-    
-    formSec.classList.remove('hidden');
-    select.innerHTML = '<option value="">-- Pobieranie kategorii... --</option>';
+    if (spinner) spinner.style.display = "block";
+    if (statusText) statusText.innerText = "Inicjalizacja pobierania...";
+    if (resultContainer) resultContainer.innerHTML = "";
 
     try {
-        const res = await fetch(`${API_URL}/api/categories?shop=${shop}`);
-        const data = await res.json();
-
-        select.innerHTML = '<option value="">-- Wybierz kategorię --</option>';
-        data.categories.forEach(cat => {
-            const opt = document.createElement('option');
-            opt.value = cat.id;
-            opt.textContent = cat.name;
-            select.appendChild(opt);
+        // 1. Zleć zadanie na backendzie
+        const response = await fetch(`${BACKEND_URL}/start_scrape`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ store: store, category: category })
         });
-    } catch (err) {
-        select.innerHTML = '<option value="">Błąd pobierania kategorii</option>';
+        
+        const data = await response.json();
+        const taskId = data.task_id;
+
+        // 2. Odpytuj backend co 1 sekundę o postęp
+        const interval = setInterval(async () => {
+            const statusResponse = await fetch(`${BACKEND_URL}/status/${taskId}`);
+            const statusData = await statusResponse.json();
+
+            if (statusData.status === "running") {
+                if (statusData.total > 0) {
+                    statusText.innerText = `Pobrano ${statusData.current} / ${statusData.total} produktów...`;
+                } else {
+                    statusText.innerText = `Pobrano ${statusData.current} produktów...`;
+                }
+            } else if (statusData.status === "completed") {
+                clearInterval(interval);
+                if (spinner) spinner.style.display = "none";
+                statusText.innerText = "Pobieranie zakończone!";
+                
+                resultContainer.innerHTML = `
+                    <p>Gotowe! Oto Twój arkusz:</p>
+                    <a href="${statusData.result_url}" target="_blank" style="padding: 10px 20px; background-color: #21a366; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin-top: 10px;">Otwórz Google Sheets</a>
+                `;
+            } else if (statusData.status === "failed") {
+                clearInterval(interval);
+                if (spinner) spinner.style.display = "none";
+                statusText.innerText = `Błąd: ${statusData.error}`;
+            }
+        }, 1000);
+
+    } catch (error) {
+        if (spinner) spinner.style.display = "none";
+        if (statusText) statusText.innerText = "Wystąpił błąd podczas połączenia z serwerem.";
+        console.error(error);
     }
 }
-
-document.getElementById('start-btn').addEventListener('click', async () => {
-    const catSelect = document.getElementById('category-select').value;
-    const manualCat = document.getElementById('manual-cat-id').value.trim();
-    const maxProds = document.getElementById('max-products').value;
-
-    const finalCatId = manualCat || catSelect;
-
-    if (!finalCatId) {
-        alert("Wybierz kategorię z listy lub wpisz jej ID!");
-        return;
-    }
-
-    document.getElementById('form-section').classList.add('hidden');
-    document.getElementById('status-section').classList.remove('hidden');
-    document.getElementById('summary-box').classList.add('hidden');
-    document.getElementById('loader').classList.remove('hidden');
-    document.getElementById('status-text').textContent = "Pobieranie produktów i zapis do Google Sheets...";
-
-    try {
-        const res = await fetch(`${API_URL}/api/scrape`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                shop: selectedShop,
-                category_id: finalCatId,
-                max_products: maxProds ? parseInt(maxProds) : null
-            })
-        });
-
-        const data = await res.json();
-
-        if (res.ok && data.success) {
-            document.getElementById('loader').classList.add('hidden');
-            document.getElementById('status-text').textContent = "✅ Proces zakończony sukcesem!";
-            
-            document.getElementById('stat-searched').textContent = data.stats.searched;
-            document.getElementById('stat-duplicates').textContent = data.stats.duplicates;
-            document.getElementById('stat-saved').textContent = data.stats.saved;
-            
-            document.getElementById('summary-box').classList.remove('hidden');
-        } else {
-            throw new Error(data.detail || "Coś poszło nie tak.");
-        }
-    } catch (err) {
-        document.getElementById('loader').classList.add('hidden');
-        document.getElementById('status-text').textContent = `❌ Błąd: ${err.message}`;
-    }
-});
