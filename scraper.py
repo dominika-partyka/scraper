@@ -167,10 +167,8 @@ def extract_photo_url(prod_dict):
     """Wyciąga bezpośredni link do zdjęcia z obiektu produktu na podstawie struktury Sinsay."""
     photo = ""
     
-    # 1. Najpierw sprawdzamy tablicę 'img' (dokładnie to, co wyszło w konsoli)
     if isinstance(prod_dict.get("img"), list) and prod_dict["img"]:
         photo = prod_dict["img"][0]
-    # 2. Zapobiegawczo: sprawdzenie pola 'firstPhoto' lub 'images'
     elif isinstance(prod_dict.get("firstPhoto"), dict):
         fp = prod_dict["firstPhoto"]
         photo = fp.get("url") or fp.get("path") or ""
@@ -188,7 +186,8 @@ def extract_photo_url(prod_dict):
             
     return ""
 
-def fetch_products_with_pagination(category_url, max_products=None):
+
+def fetch_products_with_pagination(category_url, max_products=None, progress_callback=None):
     """Pobiera pierwszą stronę z HTML, a następnie dociąga kolejne strony przez API."""
     if not category_url.startswith("http"):
         category_url = f"https://www.sinsay.com/pl/pl/{category_url.lstrip('/')}"
@@ -224,6 +223,10 @@ def fetch_products_with_pagination(category_url, max_products=None):
 
         print(f"Liczba produktów zgłoszona przez serwer: {total_quantity}")
 
+        # Poinformuj o początkowym stanie (0/razem)
+        if progress_callback:
+            progress_callback(0, total_quantity)
+
         # 1. Parsujemy produkty z 1. strony (z HTML)
         for prod in products_list:
             prod_id = prod.get("id")
@@ -250,6 +253,9 @@ def fetch_products_with_pagination(category_url, max_products=None):
                 pelny_url,
             ])
 
+        if progress_callback:
+            progress_callback(len(wszystkie_produkty), total_quantity)
+
         print(f"Strona 1 (HTML): pobrano {len(wszystkie_produkty)} unikalnych produktów.")
 
         # 2. Pętla paginacji po OFFSET
@@ -274,7 +280,6 @@ def fetch_products_with_pagination(category_url, max_products=None):
                     if not next_products:
                         break
 
-                    pobrane_w_pętli = 0
                     for prod in next_products:
                         prod_id = prod.get("id")
                         if prod_id in seen_ids:
@@ -299,10 +304,13 @@ def fetch_products_with_pagination(category_url, max_products=None):
                             cena_pln,
                             pelny_url,
                         ])
-                        pobrane_w_pętli += 1
 
                     offset += page_size
                     print(f"Pobieranie... (offset {offset}/{total_quantity}) -> Łącznie unikalnych: {len(wszystkie_produkty)}")
+
+                    if progress_callback:
+                        progress_callback(len(wszystkie_produkty), total_quantity)
+
                     time.sleep(0.4)
                 else:
                     print(f"Błąd API na offset {offset}. Kod: {page_resp.status_code}")
@@ -336,10 +344,8 @@ def write_to_sheet(sheet, wszystkie_produkty):
     sheet.append_row(["Data pobrania", "Zdjęcie", "Nazwa produktu", "Cena (PLN)", "Link do produktu"])
 
     if wszystkie_produkty:
-        # Pchamy dane przekazując USER_ENTERED, żeby Google uaktywnił wzór =IMAGE()
         sheet.append_rows(wszystkie_produkty, value_input_option="USER_ENTERED")
 
-        # Rozszerzamy komórki automatycznie
         total_rows = len(wszystkie_produkty) + 1
         try:
             body = {
@@ -352,7 +358,7 @@ def write_to_sheet(sheet, wszystkie_produkty):
                                 "startIndex": 1,
                                 "endIndex": total_rows,
                             },
-                            "properties": {"pixelSize": 80},  # Wysokość wiersza na 80px
+                            "properties": {"pixelSize": 80},
                             "fields": "pixelSize",
                         }
                     },
@@ -364,7 +370,7 @@ def write_to_sheet(sheet, wszystkie_produkty):
                                 "startIndex": 1,
                                 "endIndex": 2,
                             },
-                            "properties": {"pixelSize": 100}, # Szerokość kolumny ze zdjęciem na 100px
+                            "properties": {"pixelSize": 100},
                             "fields": "pixelSize",
                         }
                     },
@@ -393,6 +399,24 @@ def write_to_sheet(sheet, wszystkie_produkty):
         except Exception as e:
             print(f"Uwaga: Nie udało się automatycznie zmienić rozmiarów komórek przez API: {e}")
 
+    # Tworzenie bezpośredniego linku do Google Sheets (zamiast Google Drive)
+    return f"https://docs.google.com/spreadsheets/d/{sheet.spreadsheet.id}/edit"
+
+
+def scrape_sinsay_web(category_id=None, progress_callback=None):
+    """Funkcja pomocnicza do wywoływania przez FastAPI (main.py)."""
+    cat_info = resolve_category(category_id)
+    sheet = get_sheet(DEFAULT_SHEET_NAME)
+
+    wszystkie_produkty = []
+    if isinstance(cat_info, dict) and cat_info.get("url"):
+        wszystkie_produkty = fetch_products_with_pagination(
+            cat_info["url"], progress_callback=progress_callback
+        )
+
+    sheet_url = write_to_sheet(sheet, wszystkie_produkty)
+    return sheet_url
+
 
 def main(argv=None):
     args = parse_args(argv)
@@ -412,8 +436,9 @@ def main(argv=None):
 
     if wszystkie_produkty:
         print(f"\nGotowe! Zapisuję {len(wszystkie_produkty)} wierszy ze zdjęciami do Google Sheets...")
-        write_to_sheet(sheet, wszystkie_produkty)
+        sheet_url = write_to_sheet(sheet, wszystkie_produkty)
         print("Sukces! Zapisano wszystkie produkty i dostosowano rozmiar komórek.")
+        print(f"Link do Google Sheets: {sheet_url}")
     else:
         print("Brak danych do zapisania.")
 
