@@ -28,33 +28,6 @@ HEADERS = {
 }
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Scrapuj produkty Sinsay do Google Sheets")
-    parser.add_argument(
-        "--category",
-        dest="category_id",
-        help="ID kategorii Sinsay (np. 1769). Jeśli nie podasz, wygenerujemy interaktywne menu.",
-    )
-    parser.add_argument(
-        "--sheet",
-        default=DEFAULT_SHEET_NAME,
-        help=f"Nazwa arkusza w Google Sheets (domyślnie: {DEFAULT_SHEET_NAME})",
-    )
-    parser.add_argument(
-        "--max-products",
-        type=int,
-        default=None,
-        help="Maksymalna liczba produktów do pobrania.",
-    )
-    parser.add_argument(
-        "--page-size",
-        type=int,
-        default=DEFAULT_PAGE_SIZE,
-        help=f"Rozmiar strony z API (domyślnie: {DEFAULT_PAGE_SIZE})",
-    )
-    return parser.parse_args(argv)
-
-
 def get_categories_from_api():
     """Pobiera strukturę kategorii z API Sinsay lub z danych menu strony głównej."""
     url = "https://arch.sinsay.com/api/17/category/tree"
@@ -126,36 +99,22 @@ def extract_flat_categories(category_tree):
 
 
 def resolve_category(provided_category_id=None):
-    if provided_category_id:
-        return {"id": str(provided_category_id).strip(), "url": ""}
-
-    print("\nPobieram aktualne kategorie z Sinsay...")
     tree = get_categories_from_api()
     categories = extract_flat_categories(tree)
 
-    if not categories:
-        category_id = input("Nie udało się pobrać listy. Podaj ID kategorii ręcznie (np. 1769): ").strip()
-        return {"id": category_id, "url": ""}
+    if provided_category_id:
+        provided_id_str = str(provided_category_id).strip()
+        for cat in categories:
+            if cat["id"] == provided_id_str or cat["url"] == provided_id_str:
+                return cat
+        return {"id": provided_id_str, "url": provided_id_str}
 
-    print("\n--- DOSTĘPNE KATEGORIE SINSAY ---")
-    for idx, cat in enumerate(categories, start=1):
-        print(f"[{idx}] {cat['name']} (ID: {cat['id']})")
-    print("-----------------------------------")
-
-    while True:
-        wybor = input(f"\nWybierz numer kategorii (1-{len(categories)}): ").strip()
-        if wybor.isdigit():
-            num = int(wybor)
-            if 1 <= num <= len(categories):
-                wybrana = categories[num - 1]
-                print(f"\nWybrałeś: {wybrana['name']} (ID: {wybrana['id']})")
-                return wybrana
-
-        print(f"Niepoprawny numer. Wpisz liczbę od 1 do {len(categories)}.")
+    if categories:
+        return categories[0]
+    return {"id": "1769", "url": "woman/clothes/dresses"}
 
 
 def parse_js_object_fallback(js_code):
-    """Fallbackowy parser, gdy chompjs nie jest zainstalowany."""
     js_code = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)\s*:', r'\1"\2":', js_code)
     js_code = js_code.replace("'", '"')
     js_code = re.sub(r'!!0', 'false', js_code)
@@ -164,9 +123,7 @@ def parse_js_object_fallback(js_code):
 
 
 def extract_photo_url(prod_dict):
-    """Wyciąga bezpośredni link do zdjęcia z obiektu produktu na podstawie struktury Sinsay."""
     photo = ""
-    
     if isinstance(prod_dict.get("img"), list) and prod_dict["img"]:
         photo = prod_dict["img"][0]
     elif isinstance(prod_dict.get("firstPhoto"), dict):
@@ -188,7 +145,6 @@ def extract_photo_url(prod_dict):
 
 
 def fetch_products_with_pagination(category_url, max_products=None, progress_callback=None):
-    """Pobiera pierwszą stronę z HTML, a następnie dociąga kolejne strony przez API."""
     if not category_url.startswith("http"):
         category_url = f"https://www.sinsay.com/pl/pl/{category_url.lstrip('/')}"
 
@@ -200,6 +156,7 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
     try:
         response = requests.get(category_url, headers=HEADERS, timeout=15)
         if response.status_code != 200:
+            print(f"Błąd HTTP: {response.status_code}")
             return []
 
         match = re.search(
@@ -208,6 +165,7 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
             re.S,
         )
         if not match:
+            print("Nie znaleziono window.getCatalogData w HTML strony!")
             return []
 
         js_object_str = match.group(1)
@@ -221,13 +179,10 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
         real_cat_id = data.get("categoryId")
         page_size = data.get("pageSize", 120)
 
-        print(f"Liczba produktów zgłoszona przez serwer: {total_quantity}")
-
-        # Poinformuj o początkowym stanie (0/razem)
         if progress_callback:
             progress_callback(0, total_quantity)
 
-        # 1. Parsujemy produkty z 1. strony (z HTML)
+        # 1. Strona HTML
         for prod in products_list:
             prod_id = prod.get("id")
             if prod_id in seen_ids:
@@ -256,14 +211,11 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
         if progress_callback:
             progress_callback(len(wszystkie_produkty), total_quantity)
 
-        print(f"Strona 1 (HTML): pobrano {len(wszystkie_produkty)} unikalnych produktów.")
-
-        # 2. Pętla paginacji po OFFSET
+        # 2. Pętla API po offsetach
         offset = len(products_list)
 
         while offset < total_quantity:
             if max_products and len(wszystkie_produkty) >= max_products:
-                print(f"Osiągnięto limit max_products ({max_products}).")
                 break
 
             api_url = (
@@ -306,31 +258,22 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
                         ])
 
                     offset += page_size
-                    print(f"Pobieranie... (offset {offset}/{total_quantity}) -> Łącznie unikalnych: {len(wszystkie_produkty)}")
 
                     if progress_callback:
                         progress_callback(len(wszystkie_produkty), total_quantity)
 
-                    time.sleep(0.4)
+                    time.sleep(0.3)
                 else:
-                    print(f"Błąd API na offset {offset}. Kod: {page_resp.status_code}")
                     break
             except Exception as e:
-                print(f"Błąd podczas pobierania offset {offset}: {e}")
+                print(f"Błąd API: {e}")
                 break
-
-        print("\n--- PODSUMOWANIE POBIERANIA ---")
-        print(f"Przeszukano pozycji: {total_quantity}")
-        print(f"Zapisano unikalnych produktów: {len(wszystkie_produkty)}")
-        print(f"Odrzucono duplikatów: {pominiete_duplikaty}")
-        print("-------------------------------\n")
 
         return wszystkie_produkty
 
     except Exception as e:
-        print(f"Błąd podczas analizy kategorii z paginacją: {e}")
-
-    return wszystkie_produkty
+        print(f"Błąd główny scrapowania: {e}")
+        return wszystkie_produkty
 
 
 def get_sheet(sheet_name):
@@ -395,55 +338,21 @@ def write_to_sheet(sheet, wszystkie_produkty):
                 ]
             }
             sheet.spreadsheet.batch_update(body)
-            print("Powiększono komórki w arkuszu – zdjęcia są już czytelne!")
         except Exception as e:
-            print(f"Uwaga: Nie udało się automatycznie zmienić rozmiarów komórek przez API: {e}")
+            print(f"Uwaga wymiary komórek: {e}")
 
-    # Tworzenie bezpośredniego linku do Google Sheets (zamiast Google Drive)
     return f"https://docs.google.com/spreadsheets/d/{sheet.spreadsheet.id}/edit"
 
 
-def scrape_sinsay_web(category_id=None, progress_callback=None):
-    """Funkcja pomocnicza do wywoływania przez FastAPI (main.py)."""
+def scrape_sinsay_web(category_id=None, max_products=None, progress_callback=None):
     cat_info = resolve_category(category_id)
     sheet = get_sheet(DEFAULT_SHEET_NAME)
 
     wszystkie_produkty = []
     if isinstance(cat_info, dict) and cat_info.get("url"):
         wszystkie_produkty = fetch_products_with_pagination(
-            cat_info["url"], progress_callback=progress_callback
+            cat_info["url"], max_products=max_products, progress_callback=progress_callback
         )
 
     sheet_url = write_to_sheet(sheet, wszystkie_produkty)
     return sheet_url
-
-
-def main(argv=None):
-    args = parse_args(argv)
-    cat_info = resolve_category(args.category_id)
-
-    try:
-        sheet = get_sheet(args.sheet)
-        print("Połączono z Google Sheets!")
-    except Exception as e:
-        print(f"Błąd połączenia z Sheets: {e}")
-        return 1
-
-    wszystkie_produkty = []
-
-    if isinstance(cat_info, dict) and cat_info.get("url"):
-        wszystkie_produkty = fetch_products_with_pagination(cat_info["url"], max_products=args.max_products)
-
-    if wszystkie_produkty:
-        print(f"\nGotowe! Zapisuję {len(wszystkie_produkty)} wierszy ze zdjęciami do Google Sheets...")
-        sheet_url = write_to_sheet(sheet, wszystkie_produkty)
-        print("Sukces! Zapisano wszystkie produkty i dostosowano rozmiar komórek.")
-        print(f"Link do Google Sheets: {sheet_url}")
-    else:
-        print("Brak danych do zapisania.")
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

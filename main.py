@@ -1,7 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
-from scraper import scrape_sinsay_web
+from scraper import scrape_sinsay_web, get_categories_from_api, extract_flat_categories
 
 app = FastAPI()
 
@@ -13,19 +13,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Słownik na aktywne zadania w pamięci
 tasks = {}
 
-def run_scraping_task(task_id: str, store: str, category: str):
+def run_scraping_task(task_id: str, store: str, category: str, max_products: int = None):
     def update_progress(current, total):
         tasks[task_id]["current"] = current
         tasks[task_id]["total"] = total
 
     try:
         tasks[task_id]["status"] = "running"
-        
-        # Wywołanie nowej funkcji ze scraper.py
-        sheet_url = scrape_sinsay_web(category_id=category, progress_callback=update_progress)
+        sheet_url = scrape_sinsay_web(
+            category_id=category, 
+            max_products=max_products, 
+            progress_callback=update_progress
+        )
             
         tasks[task_id]["status"] = "completed"
         tasks[task_id]["result_url"] = sheet_url
@@ -33,11 +34,29 @@ def run_scraping_task(task_id: str, store: str, category: str):
         tasks[task_id]["status"] = "failed"
         tasks[task_id]["error"] = str(e)
 
+@app.get("/categories/{store}")
+def get_categories(store: str):
+    if store == "sinsay":
+        try:
+            tree = get_categories_from_api()
+            flat_categories = extract_flat_categories(tree)
+            return {"categories": flat_categories}
+        except Exception as e:
+            print(f"Błąd pobierania kategorii: {e}")
+            return {"categories": []}
+    return {"categories": []}
+
 @app.post("/start_scrape")
 def start_scrape(data: dict, background_tasks: BackgroundTasks):
     store = data.get("store")
     category = data.get("category")
+    max_products = data.get("max_products")
     
+    if max_products and str(max_products).isdigit():
+        max_products = int(max_products)
+    else:
+        max_products = None
+
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
         "status": "pending",
@@ -47,7 +66,7 @@ def start_scrape(data: dict, background_tasks: BackgroundTasks):
         "error": None
     }
     
-    background_tasks.add_task(run_scraping_task, task_id, store, category)
+    background_tasks.add_task(run_scraping_task, task_id, store, category, max_products)
     return {"task_id": task_id}
 
 @app.get("/status/{task_id}")

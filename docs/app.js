@@ -16,7 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const summaryBox = document.getElementById("summary-box");
     const sheetsBtn = document.getElementById("sheets-btn");
 
-    // 1. Obsługa kliknięcia w kafelki sklepów
+    // 1. Wybór kafelka
     storeCards.forEach(card => {
         card.addEventListener("click", async () => {
             storeCards.forEach(c => c.classList.remove("active"));
@@ -24,7 +24,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             selectedStore = card.getAttribute("data-shop");
 
-            // Dla Lidla i Biedronki - informacja o przygotowywaniu
             if (selectedStore === "lidl" || selectedStore === "biedronka") {
                 if (formSection) formSection.classList.add("hidden");
                 if (statusSection) statusSection.classList.remove("hidden");
@@ -32,13 +31,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (summaryBox) summaryBox.classList.add("hidden");
                 
                 const storeName = selectedStore === "lidl" ? "Lidl" : "Biedronka";
-                if (statusText) {
-                    statusText.innerText = `⏳ Obsługa sklepu ${storeName} jest w trakcie przygotowywania...`;
-                }
+                if (statusText) statusText.innerText = `⏳ Obsługa sklepu ${storeName} w trakcie przygotowywania...`;
                 return;
             }
 
-            // Dla Sinsay - pokazujemy formularz i pobieramy kategorie na żywo
             if (selectedStore === "sinsay") {
                 if (statusSection) statusSection.classList.add("hidden");
                 if (formSection) formSection.classList.remove("hidden");
@@ -47,41 +43,43 @@ document.addEventListener("DOMContentLoaded", () => {
                     categorySelect.innerHTML = `<option value="">⌛ Pobieranie aktualnych kategorii z Sinsay...</option>`;
 
                     try {
-                        const response = await fetch("https://arch.sinsay.com/api/17/category/tree");
-                        const categories = await response.json();
+                        const response = await fetch(`${BACKEND_URL}/categories/sinsay`);
+                        const data = await response.json();
 
-                        categorySelect.innerHTML = `<option value="">-- Wybierz pobraną kategorię --</option>`;
+                        categorySelect.innerHTML = `<option value="">-- Wybierz kategorię z listy --</option>`;
 
-                        categories.forEach(cat => {
-                            if (cat.id && cat.name) {
+                        if (data.categories && data.categories.length > 0) {
+                            data.categories.forEach(cat => {
                                 const option = document.createElement("option");
-                                option.value = cat.id;
+                                option.value = cat.id; // wysyłamy ID lub url
                                 option.textContent = `${cat.name} (ID: ${cat.id})`;
                                 categorySelect.appendChild(option);
-                            }
-                        });
+                            });
+                        } else {
+                            categorySelect.innerHTML = `<option value="">⚠️ Wpisz numer ID ręcznie poniżej (np. 1769)</option>`;
+                        }
                     } catch (err) {
                         console.error("Błąd pobierania kategorii:", err);
-                        categorySelect.innerHTML = `<option value="">⚠️ Błąd pobierania - wpisz ID ręcznie niżej</option>`;
+                        categorySelect.innerHTML = `<option value="">⚠️ Wpisz numer ID ręcznie poniżej (np. 1769)</option>`;
                     }
                 }
             }
         });
     });
 
-    // 2. Obsługa kliknięcia "Uruchom Scrapowanie"
+    // 2. Kliknięcie start
     if (startBtn) {
         startBtn.addEventListener("click", () => {
             const category = manualCatInput.value.trim() || categorySelect.value;
             const maxProducts = maxProductsInput ? maxProductsInput.value : null;
 
             if (!selectedStore) {
-                alert("Wybierz najpierw sklep klikając na kafelek!");
+                alert("Wybierz sklep klikając na kafelek!");
                 return;
             }
 
             if (!category) {
-                alert("Wybierz kategorię z listy lub wpisz jej ID ręcznie!");
+                alert("Wybierz kategorię z listy lub wpisz jej ID / ścieżkę ręcznie!");
                 return;
             }
 
@@ -89,7 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 3. Główna funkcja wysyłająca zapytanie do FastAPI i odpytująca o status
+    // 3. Proces scrapowania
     async function runScraper(store, category, maxProducts) {
         if (statusSection) statusSection.classList.remove("hidden");
         if (loader) loader.style.display = "block";
@@ -106,10 +104,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     max_products: maxProducts
                 })
             });
-
-            if (!response.ok) {
-                throw new Error(`Serwer zwrócił błąd: ${response.status}`);
-            }
 
             const data = await response.json();
             const taskId = data.task_id;
@@ -145,17 +139,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     } else if (statusData.status === "failed") {
                         clearInterval(interval);
                         if (loader) loader.style.display = "none";
-                        statusText.innerText = `Wystąpił błąd: ${statusData.error || "Nieznany błąd"}`;
+                        statusText.innerText = `Wystąpił błąd: ${statusData.error || "Błąd podczas scrapowania"}`;
                     }
                 } catch (err) {
-                    console.error("Błąd podczas odpytywania o status:", err);
+                    console.error("Błąd statusu:", err);
                 }
             }, 1000);
 
         } catch (error) {
             if (loader) loader.style.display = "none";
             if (statusText) statusText.innerText = "Nie udało się połączyć z serwerem.";
-            console.error(error);
         }
     }
 });
