@@ -3,6 +3,7 @@ import json
 import re
 import time
 from datetime import datetime
+import os
 
 import gspread
 import requests
@@ -277,7 +278,26 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
 
 
 def get_sheet(sheet_name):
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", SCOPE)
+    # Odczytujemy JSON bezpośrednio ze zmiennej środowiskowej na Renderze
+    json_creds_raw = (
+        os.getenv("GOOGLE_CREDENTIALS_JSON") 
+        or os.getenv("GOOGLE_CREDENTIALS") 
+        or os.getenv("GCP_SA_KEY")
+    )
+    
+    if json_creds_raw:
+        # Konwersja ze tekstu JSON na słownik w pamięci
+        creds_dict = json.loads(json_creds_raw)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+    else:
+        # Fallback dla lokalnego uruchamiania na komputerze
+        creds_file = "credentials.json"
+        if not os.path.exists(creds_file):
+            raise FileNotFoundError(
+                "Nie znaleziono zmiennej GOOGLE_CREDENTIALS_JSON na Renderze ani pliku credentials.json lokalnie."
+            )
+        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, SCOPE)
+
     client = gspread.authorize(creds)
     return client.open(sheet_name).sheet1
 
