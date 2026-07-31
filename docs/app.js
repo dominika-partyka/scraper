@@ -16,7 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const summaryBox = document.getElementById("summary-box");
     const sheetsBtn = document.getElementById("sheets-btn");
 
-    // 1. Wybór kafelka
+    // 1. Wybór kafelka sklepu
     storeCards.forEach(card => {
         card.addEventListener("click", async () => {
             storeCards.forEach(c => c.classList.remove("active"));
@@ -51,7 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         if (data.categories && data.categories.length > 0) {
                             data.categories.forEach(cat => {
                                 const option = document.createElement("option");
-                                option.value = cat.id; // wysyłamy ID lub url
+                                option.value = cat.id;
                                 option.textContent = `${cat.name} (ID: ${cat.id})`;
                                 categorySelect.appendChild(option);
                             });
@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 2. Kliknięcie start
+    // 2. Kliknięcie "Uruchom Scrapowanie"
     if (startBtn) {
         startBtn.addEventListener("click", () => {
             const category = manualCatInput.value.trim() || categorySelect.value;
@@ -87,7 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 3. Proces scrapowania
+    // 3. Proces scrapowania i prezentacji wyników
     async function runScraper(store, category, maxProducts) {
         if (statusSection) statusSection.classList.remove("hidden");
         if (loader) loader.style.display = "block";
@@ -125,10 +125,19 @@ document.addEventListener("DOMContentLoaded", () => {
                         statusText.innerText = "Pobieranie zakończone pomyślnie!";
 
                         const statSearched = document.getElementById("stat-searched");
+                        const statDuplicates = document.getElementById("stat-duplicates");
                         const statSaved = document.getElementById("stat-saved");
 
-                        if (statSearched) statSearched.innerText = statusData.total || statusData.current;
-                        if (statSaved) statSaved.innerText = statusData.current;
+                        const totalSearched = statusData.total || statusData.current;
+                        const totalSaved = statusData.current;
+                        // MATEMA: Jeśli serwer nie podał duplikatów, wyliczamy: Szukane minus Zapisane
+                        const duplicatesCount = statusData.duplicates !== undefined && statusData.duplicates > 0 
+                            ? statusData.duplicates 
+                            : (totalSearched - totalSaved);
+
+                        if (statSearched) statSearched.innerText = totalSearched;
+                        if (statDuplicates) statDuplicates.innerText = duplicatesCount;
+                        if (statSaved) statSaved.innerText = totalSaved;
 
                         if (sheetsBtn && statusData.result_url) {
                             sheetsBtn.href = statusData.result_url;

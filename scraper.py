@@ -180,10 +180,11 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
         real_cat_id = data.get("categoryId")
         page_size = data.get("pageSize", 120)
 
+        # Powiadomienie na start (0 produktów, total_quantity, 0 duplikatów)
         if progress_callback:
-            progress_callback(0, total_quantity)
+            progress_callback(0, total_quantity, 0)
 
-        # 1. Strona HTML
+        # 1. Parsowanie produktów z 1. strony (HTML)
         for prod in products_list:
             prod_id = prod.get("id")
             if prod_id in seen_ids:
@@ -209,8 +210,9 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
                 pelny_url,
             ])
 
+        # Powiadomienie po parsowaniu 1. strony z uwzględnieniem duplikatów
         if progress_callback:
-            progress_callback(len(wszystkie_produkty), total_quantity)
+            progress_callback(len(wszystkie_produkty), total_quantity, pominiete_duplikaty)
 
         # 2. Pętla API po offsetach
         offset = len(products_list)
@@ -260,8 +262,9 @@ def fetch_products_with_pagination(category_url, max_products=None, progress_cal
 
                     offset += page_size
 
+                    # Powiadomienie w pętli z aktualną liczbą duplikatów
                     if progress_callback:
-                        progress_callback(len(wszystkie_produkty), total_quantity)
+                        progress_callback(len(wszystkie_produkty), total_quantity, pominiete_duplikaty)
 
                     time.sleep(0.3)
                 else:

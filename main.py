@@ -16,9 +16,10 @@ app.add_middleware(
 tasks = {}
 
 def run_scraping_task(task_id: str, store: str, category: str, max_products: int = None):
-    def update_progress(current, total):
+    def update_progress(current, total, duplicates=0):
         tasks[task_id]["current"] = current
         tasks[task_id]["total"] = total
+        tasks[task_id]["duplicates"] = duplicates
 
     try:
         tasks[task_id]["status"] = "running"
@@ -62,6 +63,7 @@ def start_scrape(data: dict, background_tasks: BackgroundTasks):
         "status": "pending",
         "current": 0,
         "total": 0,
+        "duplicates": 0,
         "result_url": None,
         "error": None
     }
