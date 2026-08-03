@@ -25,7 +25,6 @@ def run_scraping_task(task_id: str, store: str, category: str, max_products: int
     try:
         tasks[task_id]["status"] = "running"
 
-        # Rozróżnienie sklepów
         if store == "lidl":
             sheet_url = scrape_lidl_web(
                 category_id=category,
@@ -51,27 +50,10 @@ def get_categories(store: str):
         try:
             tree = get_categories_from_api()
             flat_categories = extract_flat_categories(tree)
-            
-            # Grupowanie kategorii według głównego działu (np. Kobieta, Mężczyzna, Dziecko)
-            grouped = {}
-            for cat in flat_categories:
-                parts = cat["name"].split(" > ")
-                main_group = parts[0] if parts else "Inne"
-                
-                if main_group not in grouped:
-                    grouped[main_group] = []
-                    
-                grouped[main_group].append({
-                    "id": cat["id"],
-                    "url": cat.get("url", ""),
-                    "sub_name": " > ".join(parts[1:]) if len(parts) > 1 else parts[0],
-                    "full_name": cat["name"]
-                })
-
-            return {"grouped_categories": grouped, "categories": flat_categories}
+            return {"categories": flat_categories}
         except Exception as e:
             print(f"Błąd pobierania kategorii Sinsay: {e}")
-            return {"grouped_categories": {}, "categories": []}
+            return {"categories": []}
 
     elif store == "lidl":
         try:

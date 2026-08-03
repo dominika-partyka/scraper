@@ -1,14 +1,12 @@
 const BACKEND_URL = "https://scraper-backend-lxaw.onrender.com";
 
 let selectedStore = null;
-let sinsayGroupedCategories = {}; // Przechowujemy pogrupowane kategorie Sinsay
 
 document.addEventListener("DOMContentLoaded", () => {
     const storeCards = document.querySelectorAll(".store-card");
     const formSection = document.getElementById("form-section");
     const startBtn = document.getElementById("start-btn");
     
-    const mainCategorySelect = document.getElementById("main-category-select");
     const categorySelect = document.getElementById("category-select");
     const manualCatInput = document.getElementById("manual-cat-id");
     const maxProductsInput = document.getElementById("max-products");
@@ -19,30 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const summaryBox = document.getElementById("summary-box");
     const sheetsBtn = document.getElementById("sheets-btn");
 
-    // 1. Obsługa reakcji na zmianę pierwszego menu (Dział główny Sinsay)
-    if (mainCategorySelect) {
-        mainCategorySelect.addEventListener("change", (e) => {
-            const selectedMainGroup = e.target.value;
-            
-            if (!categorySelect) return;
-
-            categorySelect.innerHTML = `<option value="">-- Wybierz podkategorię --</option>`;
-
-            if (selectedMainGroup && sinsayGroupedCategories[selectedMainGroup]) {
-                categorySelect.disabled = false;
-                sinsayGroupedCategories[selectedMainGroup].forEach(cat => {
-                    const option = document.createElement("option");
-                    option.value = cat.id; // Przekazujemy ID do scrapowania
-                    option.textContent = `${cat.sub_name} (ID: ${cat.id})`;
-                    categorySelect.appendChild(option);
-                });
-            } else {
-                categorySelect.disabled = true;
-            }
-        });
-    }
-
-    // 2. Klikanie w kafelki sklepów
+    // Klikanie w kafelki sklepów
     storeCards.forEach(card => {
         card.addEventListener("click", async () => {
             storeCards.forEach(c => c.classList.remove("active"));
@@ -65,49 +40,65 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const storeNameNice = selectedStore === "sinsay" ? "Sinsay" : "Lidl";
 
-                if (mainCategorySelect && categorySelect) {
-                    mainCategorySelect.innerHTML = `<option value="">⌛ Pobieranie kategorii z ${storeNameNice}...</option>`;
-                    categorySelect.innerHTML = `<option value="">-- Wybierz najpierw główny dział --</option>`;
-                    categorySelect.disabled = true;
+                if (categorySelect) {
+                    categorySelect.innerHTML = `<option value="">⌛ Pobieranie kategorii z ${storeNameNice}...</option>`;
 
                     try {
                         const response = await fetch(`${BACKEND_URL}/categories/${selectedStore}`);
                         const data = await response.json();
 
-                        if (selectedStore === "sinsay" && data.grouped_categories) {
-                            sinsayGroupedCategories = data.grouped_categories;
-                            
-                            mainCategorySelect.innerHTML = `<option value="">-- Wybierz główny dział (np. Kobieta, Mężczyzna) --</option>`;
-                            
-                            Object.keys(sinsayGroupedCategories).forEach(mainGroup => {
-                                const option = document.createElement("option");
-                                option.value = mainGroup;
-                                option.textContent = mainGroup;
-                                mainCategorySelect.appendChild(option);
-                            });
-                        } else if (selectedStore === "lidl" && data.categories) {
-                            // Dla Lidla używamy rozwijanej listy z kategoriami
-                            mainCategorySelect.innerHTML = `<option value="">-- Kategoria główna Lidl --</option>`;
-                            categorySelect.innerHTML = `<option value="">-- Wybierz kategorię z listy (Lidl) --</option>`;
-                            categorySelect.disabled = false;
+                        categorySelect.innerHTML = `<option value="">-- Wybierz kategorię z listy (${storeNameNice}) --</option>`;
 
-                            data.categories.forEach(cat => {
-                                const option = document.createElement("option");
-                                option.value = cat.url || cat.id;
-                                option.textContent = cat.name;
-                                categorySelect.appendChild(option);
-                            });
+                        if (data.categories && data.categories.length > 0) {
+                            if (selectedStore === "sinsay") {
+                                // Grupowanie w 1 liście pod podnagłówkami (np. Kobieta, Mężczyzna)
+                                const groups = {};
+                                data.categories.forEach(cat => {
+                                    const parts = cat.name.split(" > ");
+                                    const mainGroup = parts[0] || "Inne";
+                                    if (!groups[mainGroup]) groups[mainGroup] = [];
+                                    groups[mainGroup].append ? null : null;
+                                    groups[mainGroup].push({
+                                        id: cat.id,
+                                        label: parts.length > 1 ? `↳ ${parts.slice(1).join(" > ")}` : parts[0]
+                                    });
+                                });
+
+                                Object.keys(groups).forEach(groupName => {
+                                    const optgroup = document.createElement("optgroup");
+                                    optgroup.label = `📁 ${groupName.toUpperCase()}`;
+                                    
+                                    groups[groupName].forEach(item => {
+                                        const option = document.createElement("option");
+                                        option.value = item.id;
+                                        option.textContent = `${item.label} (ID: ${item.id})`;
+                                        optgroup.appendChild(option);
+                                    });
+                                    
+                                    categorySelect.appendChild(optgroup);
+                                });
+                            } else {
+                                // Standardowa lista dla Lidla
+                                data.categories.forEach(cat => {
+                                    const option = document.createElement("option");
+                                    option.value = cat.url || cat.id;
+                                    option.textContent = cat.name;
+                                    categorySelect.appendChild(option);
+                                });
+                            }
+                        } else {
+                            categorySelect.innerHTML = `<option value="">⚠️ Wpisz ID / URL kategorii ręcznie poniżej</option>`;
                         }
                     } catch (err) {
                         console.error("Błąd pobierania kategorii:", err);
-                        mainCategorySelect.innerHTML = `<option value="">⚠️ Wpisz ID / URL kategorii ręcznie poniżej</option>`;
+                        categorySelect.innerHTML = `<option value="">⚠️ Wpisz ID / URL kategorii ręcznie poniżej</option>`;
                     }
                 }
             }
         });
     });
 
-    // 3. Uruchomienie scrapowania
+    // Uruchomienie scrapowania
     if (startBtn) {
         startBtn.addEventListener("click", () => {
             const category = manualCatInput.value.trim() || categorySelect.value;
@@ -119,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if (!category) {
-                alert("Wybierz kaskadowo kategorię z listy lub wpisz jej ID / ścieżkę ręcznie!");
+                alert("Wybierz kategorię z listy lub wpisz jej ID / ścieżkę ręcznie!");
                 return;
             }
 
@@ -127,7 +118,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 4. Obsługa statusu i wysyłania zadań
+    // Obsługa statusu i wysyłania zadań
     async function runScraper(store, category, maxProducts) {
         if (statusSection) statusSection.classList.remove("hidden");
         if (loader) loader.style.display = "block";
