@@ -65,7 +65,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const response = await fetch(`${BACKEND_URL}/categories/${selectedStore}`);
                     const data = await response.json();
 
-                    dropdownSelected.innerText = `-- Wybierz kategorię z listy (${storeNameNice}) --`;
+                    dropdownSelected.innerText = ` Otwórz listę `;
 
                     if (data.categories && data.categories.length > 0) {
                         if (selectedStore === "sinsay") {
