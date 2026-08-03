@@ -271,7 +271,7 @@ label {
 
 /* Styling dla wyszarzonego i mniejszego ID w liście kategorii */
 .cat-id {
-    font-size: 0.85em;
+    font-size: 0.65em;
     color: #888888;
     margin-left: 4px;
 }
