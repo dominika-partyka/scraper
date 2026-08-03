@@ -24,43 +24,46 @@ document.addEventListener("DOMContentLoaded", () => {
 
             selectedStore = card.getAttribute("data-shop");
 
-            if (selectedStore === "lidl" || selectedStore === "biedronka") {
+            // Tylko Biedronka zostaje w przygotowaniu
+            if (selectedStore === "biedronka") {
                 if (formSection) formSection.classList.add("hidden");
                 if (statusSection) statusSection.classList.remove("hidden");
                 if (loader) loader.style.display = "none";
                 if (summaryBox) summaryBox.classList.add("hidden");
                 
-                const storeName = selectedStore === "lidl" ? "Lidl" : "Biedronka";
-                if (statusText) statusText.innerText = `⏳ Obsługa sklepu ${storeName} w trakcie przygotowywania...`;
+                if (statusText) statusText.innerText = `⏳ Obsługa sklepu Biedronka w trakcie przygotowywania...`;
                 return;
             }
 
-            if (selectedStore === "sinsay") {
+            // Dla Sinsay ORAZ Lidl – otwarcie formularza i pobranie kategorii
+            if (selectedStore === "sinsay" || selectedStore === "lidl") {
                 if (statusSection) statusSection.classList.add("hidden");
                 if (formSection) formSection.classList.remove("hidden");
 
+                const storeNameNice = selectedStore === "sinsay" ? "Sinsay" : "Lidl";
+
                 if (categorySelect) {
-                    categorySelect.innerHTML = `<option value="">⌛ Pobieranie aktualnych kategorii z Sinsay...</option>`;
+                    categorySelect.innerHTML = `<option value="">⌛ Pobieranie aktualnych kategorii z ${storeNameNice}...</option>`;
 
                     try {
-                        const response = await fetch(`${BACKEND_URL}/categories/sinsay`);
+                        const response = await fetch(`${BACKEND_URL}/categories/${selectedStore}`);
                         const data = await response.json();
 
-                        categorySelect.innerHTML = `<option value="">-- Wybierz kategorię z listy --</option>`;
+                        categorySelect.innerHTML = `<option value="">-- Wybierz kategorię z listy (${storeNameNice}) --</option>`;
 
                         if (data.categories && data.categories.length > 0) {
                             data.categories.forEach(cat => {
                                 const option = document.createElement("option");
-                                option.value = cat.id;
-                                option.textContent = `${cat.name} (ID: ${cat.id})`;
+                                option.value = cat.url || cat.id;
+                                option.textContent = cat.name.includes("ID:") ? cat.name : `${cat.name} (ID: ${cat.id})`;
                                 categorySelect.appendChild(option);
                             });
                         } else {
-                            categorySelect.innerHTML = `<option value="">⚠️ Wpisz numer ID ręcznie poniżej (np. 1769)</option>`;
+                            categorySelect.innerHTML = `<option value="">⚠️ Wpisz ID / URL kategorii ręcznie poniżej</option>`;
                         }
                     } catch (err) {
                         console.error("Błąd pobierania kategorii:", err);
-                        categorySelect.innerHTML = `<option value="">⚠️ Wpisz numer ID ręcznie poniżej (np. 1769)</option>`;
+                        categorySelect.innerHTML = `<option value="">⚠️ Wpisz ID / URL kategorii ręcznie poniżej</option>`;
                     }
                 }
             }
@@ -130,7 +133,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         const totalSearched = statusData.total || statusData.current;
                         const totalSaved = statusData.current;
-                        // MATEMA: Jeśli serwer nie podał duplikatów, wyliczamy: Szukane minus Zapisane
                         const duplicatesCount = statusData.duplicates !== undefined && statusData.duplicates > 0 
                             ? statusData.duplicates 
                             : (totalSearched - totalSaved);

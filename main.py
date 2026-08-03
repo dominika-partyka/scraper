@@ -2,6 +2,7 @@ from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
 from scraper import scrape_sinsay_web, get_categories_from_api, extract_flat_categories
+from lidl_scraper import scrape_lidl_web, get_lidl_categories
 
 app = FastAPI()
 
@@ -23,11 +24,20 @@ def run_scraping_task(task_id: str, store: str, category: str, max_products: int
 
     try:
         tasks[task_id]["status"] = "running"
-        sheet_url = scrape_sinsay_web(
-            category_id=category, 
-            max_products=max_products, 
-            progress_callback=update_progress
-        )
+
+        # Rozróżnienie sklepów
+        if store == "lidl":
+            sheet_url = scrape_lidl_web(
+                category_id=category,
+                max_products=max_products,
+                progress_callback=update_progress
+            )
+        else:
+            sheet_url = scrape_sinsay_web(
+                category_id=category, 
+                max_products=max_products, 
+                progress_callback=update_progress
+            )
             
         tasks[task_id]["status"] = "completed"
         tasks[task_id]["result_url"] = sheet_url
@@ -43,8 +53,16 @@ def get_categories(store: str):
             flat_categories = extract_flat_categories(tree)
             return {"categories": flat_categories}
         except Exception as e:
-            print(f"Błąd pobierania kategorii: {e}")
+            print(f"Błąd pobierania kategorii Sinsay: {e}")
             return {"categories": []}
+    elif store == "lidl":
+        try:
+            categories = get_lidl_categories()
+            return {"categories": categories}
+        except Exception as e:
+            print(f"Błąd pobierania kategorii Lidl: {e}")
+            return {"categories": []}
+
     return {"categories": []}
 
 @app.post("/start_scrape")
