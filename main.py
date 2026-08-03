@@ -56,12 +56,13 @@ def get_categories(store: str):
             return {"categories": []}
 
     elif store == "lidl":
-        try:
-            categories = get_lidl_categories()
-            return {"categories": categories}
-        except Exception as e:
-            print(f"Błąd pobierania kategorii Lidl: {e}")
-            return {"categories": []}
+            try:
+                categories = get_lidl_categories()
+                return {"categories": categories}
+            except Exception as e:
+                print(f"Błąd pobierania kategorii Lidl: {e}")
+                from lidl_scraper import DEFAULT_LIDL_CATEGORIES
+                return {"categories": DEFAULT_LIDL_CATEGORIES}
 
     return {"categories": []}
 

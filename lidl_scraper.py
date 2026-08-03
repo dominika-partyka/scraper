@@ -19,20 +19,40 @@ DEFAULT_SHEET_NAME = "Scraper"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "pl-PL,pl;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 }
 
+# Gwarantowane kategorie zapasowe, żeby strona NIGDY nie rzuciła żółtym błędem
+DEFAULT_LIDL_CATEGORIES = [
+    {"id": "https://www.lidl.pl/h/sypialnia/h10067552", "name": "Dom i wyposażenie wnętrz > Sypialnia", "url": "https://www.lidl.pl/h/sypialnia/h10067552"},
+    {"id": "https://www.lidl.pl/h/lazienka/h10067553", "name": "Dom i wyposażenie wnętrz > Łazienka", "url": "https://www.lidl.pl/h/lazienka/h10067553"},
+    {"id": "https://www.lidl.pl/h/pokoj-dzienny/h10067554", "name": "Dom i wyposażenie wnętrz > Pokój dzienny", "url": "https://www.lidl.pl/h/pokoj-dzienny/h10067554"},
+    {"id": "https://www.lidl.pl/h/kuchnia-i-jadalnia/h10067556", "name": "Dom i wyposażenie wnętrz > Kuchnia i jadalnia", "url": "https://www.lidl.pl/h/kuchnia-i-jadalnia/h10067556"},
+    {"id": "https://www.lidl.pl/c/meble/c10006701", "name": "Dom i wyposażenie wnętrz > Meble", "url": "https://www.lidl.pl/c/meble/c10006701"},
+    {"id": "https://www.lidl.pl/c/oswietlenie/c10006716", "name": "Dom i wyposażenie wnętrz > Oświetlenie do domu", "url": "https://www.lidl.pl/c/oswietlenie/c10006716"},
+    {"id": "https://www.lidl.pl/c/narzedzia/c10006766", "name": "Warsztat i auto > Narzędzia", "url": "https://www.lidl.pl/c/narzedzia/c10006766"},
+    {"id": "https://www.lidl.pl/c/warsztat/c10006771", "name": "Warsztat i auto > Warsztat", "url": "https://www.lidl.pl/c/warsztat/c10006771"},
+    {"id": "https://www.lidl.pl/c/akcesoria-samochodowe/c10006756", "name": "Warsztat i auto > Akcesoria samochodowe", "url": "https://www.lidl.pl/c/akcesoria-samochodowe/c10006756"},
+    {"id": "https://www.lidl.pl/c/ogrod/c10006711", "name": "Ogród i balkon > Meble ogrodowe i elektronarzędzia", "url": "https://www.lidl.pl/c/ogrod/c10006711"},
+    {"id": "https://www.lidl.pl/c/odziez-damska/c10006601", "name": "Moda > Odzież damska", "url": "https://www.lidl.pl/c/odziez-damska/c10006601"},
+    {"id": "https://www.lidl.pl/c/odziez-meska/c10006611", "name": "Moda > Odzież męska", "url": "https://www.lidl.pl/c/odziez-meska/c10006611"},
+    {"id": "https://www.lidl.pl/c/obuwie/c10006591", "name": "Moda > Obuwie", "url": "https://www.lidl.pl/c/obuwie/c10006591"},
+    {"id": "https://www.lidl.pl/c/agd-do-kuchni/c10006651", "name": "Kuchnia > AGD do kuchni", "url": "https://www.lidl.pl/c/agd-do-kuchni/c10006651"},
+    {"id": "https://www.lidl.pl/c/przybory-kuchenne/c10006661", "name": "Kuchnia > Przybory kuchenne", "url": "https://www.lidl.pl/c/przybory-kuchenne/c10006661"},
+    {"id": "https://www.lidl.pl/c/rowery-i-akcesoria/c10006821", "name": "Sport i czas wolny > Rowery i akcesoria", "url": "https://www.lidl.pl/c/rowery-i-akcesoria/c10006821"},
+    {"id": "https://www.lidl.pl/c/fitness-i-silownia/c10006811", "name": "Sport i czas wolny > Fitness i siłownia", "url": "https://www.lidl.pl/c/fitness-i-silownia/c10006811"}
+]
+
 def get_lidl_categories():
-    """Pobiera i tworzy drzewiastą strukturę kategorii Lidla."""
+    """Zwraca strukturę kategorii Lidla."""
     url = "https://www.lidl.pl"
     categories = []
     
-    # 1. Próba pobrania kategorii bezpośrednio ze struktury HTML (klasy ze screena)
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=10)
+        # Szybkie zapytanie HTTP z krótkim timeoutem (3 sekundy)
+        resp = requests.get(url, headers=HEADERS, timeout=3)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
-            
-            # Szukamy głównych sekcji nawigacji
             nav_links = soup.select("a.n-header__main-navigation-link")
             
             for link in nav_links:
@@ -41,12 +61,10 @@ def get_lidl_categories():
                 
                 if ("/c/" in href or "/h/" in href) and text and len(text) > 2:
                     full_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
-                    # Szukamy czy ma rodzica/dział główny
                     parent_nav = link.find_parent("ol", class_="n-header__main-navigation-sub")
                     parent_title = ""
                     
                     if parent_nav:
-                        # Próbujemy znaleźć nagłówek działu (np. Dom i wyposażenie wnętrz)
                         header_el = parent_nav.select_one(".n-header__subnavigation-list_head-item")
                         if header_el:
                             parent_title = header_el.get_text(strip=True)
@@ -63,41 +81,10 @@ def get_lidl_categories():
             if categories:
                 return categories
     except Exception as e:
-        print(f"Błąd dynamicznego parsowania HTML Lidla: {e}")
+        print(f"Pobieranie w locie z Lidla przerwane (przełączam na listę stałą): {e}")
 
-    # 2. Pewny, niezawodny zestaw głównych kategorii Lidla z podziałem na foldery (Fallback)
-    default_categories = [
-        # Dom i wyposażenie wnętrz
-        {"id": "https://www.lidl.pl/h/sypialnia/h10067552", "name": "Dom i wyposażenie wnętrz > Sypialnia", "url": "https://www.lidl.pl/h/sypialnia/h10067552"},
-        {"id": "https://www.lidl.pl/h/lazienka/h10067553", "name": "Dom i wyposażenie wnętrz > Łazienka", "url": "https://www.lidl.pl/h/lazienka/h10067553"},
-        {"id": "https://www.lidl.pl/h/pokoj-dzienny/h10067554", "name": "Dom i wyposażenie wnętrz > Pokój dzienny", "url": "https://www.lidl.pl/h/pokoj-dzienny/h10067554"},
-        {"item": "https://www.lidl.pl/h/kuchnia-i-jadalnia/h10067556", "name": "Dom i wyposażenie wnętrz > Kuchnia i jadalnia", "url": "https://www.lidl.pl/h/kuchnia-i-jadalnia/h10067556"},
-        {"id": "https://www.lidl.pl/c/meble/c10006701", "name": "Dom i wyposażenie wnętrz > Meble", "url": "https://www.lidl.pl/c/meble/c10006701"},
-        {"id": "https://www.lidl.pl/c/oswietlenie/c10006716", "name": "Dom i wyposażenie wnętrz > Oświetlenie do domu", "url": "https://www.lidl.pl/c/oswietlenie/c10006716"},
-        
-        # Warsztat i auto
-        {"id": "https://www.lidl.pl/c/narzedzia/c10006766", "name": "Warsztat i auto > Narzędzia", "url": "https://www.lidl.pl/c/narzedzia/c10006766"},
-        {"id": "https://www.lidl.pl/c/warsztat/c10006771", "name": "Warsztat i auto > Warsztat", "url": "https://www.lidl.pl/c/warsztat/c10006771"},
-        {"id": "https://www.lidl.pl/c/akcesoria-samochodowe/c10006756", "name": "Warsztat i auto > Akcesoria samochodowe", "url": "https://www.lidl.pl/c/akcesoria-samochodowe/c10006756"},
-        
-        # Ogród i balkon
-        {"id": "https://www.lidl.pl/c/ogrod/c10006711", "name": "Ogród i balkon > Meble ogrodowe i elektronarzędzia", "url": "https://www.lidl.pl/c/ogrod/c10006711"},
-        
-        # Moda
-        {"id": "https://www.lidl.pl/c/odziez-damska/c10006601", "name": "Moda > Odzież damska", "url": "https://www.lidl.pl/c/odziez-damska/c10006601"},
-        {"id": "https://www.lidl.pl/c/odziez-meska/c10006611", "name": "Moda > Odzież męska", "url": "https://www.lidl.pl/c/odziez-meska/c10006611"},
-        {"id": "https://www.lidl.pl/c/obuwie/c10006591", "name": "Moda > Obuwie", "url": "https://www.lidl.pl/c/obuwie/c10006591"},
-
-        # Kuchnia i AGD
-        {"id": "https://www.lidl.pl/c/agd-do-kuchni/c10006651", "name": "Kuchnia > AGD do kuchni", "url": "https://www.lidl.pl/c/agd-do-kuchni/c10006651"},
-        {"id": "https://www.lidl.pl/c/przybory-kuchenne/c10006661", "name": "Kuchnia > Przybory kuchenne", "url": "https://www.lidl.pl/c/przybory-kuchenne/c10006661"},
-
-        # Sport i czas wolny
-        {"id": "https://www.lidl.pl/c/rowery-i-akcesoria/c10006821", "name": "Sport i czas wolny > Rowery i akcesoria", "url": "https://www.lidl.pl/c/rowery-i-akcesoria/c10006821"},
-        {"id": "https://www.lidl.pl/c/fitness-i-silownia/c10006811", "name": "Sport i czas wolny > Fitness i siłownia", "url": "https://www.lidl.pl/c/fitness-i-silownia/c10006811"}
-    ]
-    
-    return default_categories
+    # Jeśli strona nie odpowiedziała w 3s lub zablokowała backend – natychmiast dajemy bezpieczną listę!
+    return DEFAULT_LIDL_CATEGORIES
 
 def extract_lidl_products(category_url, max_products=None, progress_callback=None):
     if not category_url.startswith("http"):
