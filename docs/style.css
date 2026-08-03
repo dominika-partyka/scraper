@@ -268,3 +268,10 @@ label {
     background: #eef5ff;
     color: #000;
 }
+
+/* Styling dla wyszarzonego i mniejszego ID w liście kategorii */
+.cat-id {
+    font-size: 0.85em;
+    color: #888888;
+    margin-left: 4px;
+}
