@@ -23,16 +23,20 @@
             </div>
         </div>
 
-       <!-- Sekcja Formularza -->
+      <!-- Sekcja Formularza -->
         <div id="form-section" class="card hidden">
             <div class="form-group">
-                <label for="category-select">Wybierz kategorię z listy:</label>
-                <select id="category-select" class="input-field">
-                    <option value="">-- Wybierz najpierw sklep powyżej --</option>
-                </select>
+                <label>Wybierz kategorię z listy:</label>
+                <!-- Customowa rozwijana lista z ptaszkami -->
+                <div class="custom-dropdown" id="custom-dropdown">
+                    <div class="dropdown-selected" id="dropdown-selected">-- Wybierz najpierw sklep powyżej --</div>
+                    <div class="dropdown-menu hidden" id="dropdown-menu"></div>
+                </div>
+                <!-- Ukryte pole tekstowe przechowujące wybrane ID dla scrapera -->
+                <input type="hidden" id="category-select" value="">
             </div>
 
-            <div class="form-group">
+            <div class="form-group" style="margin-top: 15px;">
                 <label for="manual-cat-id">Lub wpisz ID / numer kategorii ręcznie:</label>
                 <input type="text" id="manual-cat-id" class="input-field" placeholder="np. 1769">
             </div>

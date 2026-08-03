@@ -7,7 +7,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const formSection = document.getElementById("form-section");
     const startBtn = document.getElementById("start-btn");
     
-    const categorySelect = document.getElementById("category-select");
+    const customDropdown = document.getElementById("custom-dropdown");
+    const dropdownSelected = document.getElementById("dropdown-selected");
+    const dropdownMenu = document.getElementById("dropdown-menu");
+    const categorySelectInput = document.getElementById("category-select");
+
     const manualCatInput = document.getElementById("manual-cat-id");
     const maxProductsInput = document.getElementById("max-products");
 
@@ -17,7 +21,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const summaryBox = document.getElementById("summary-box");
     const sheetsBtn = document.getElementById("sheets-btn");
 
-    // Klikanie w kafelki sklepów
+    // Otwieranie / zamykanie głównego menu rozwijanego
+    if (dropdownSelected) {
+        dropdownSelected.addEventListener("click", (e) => {
+            e.stopPropagation();
+            dropdownMenu.classList.toggle("hidden");
+        });
+    }
+
+    // Zamknięcie menu przy kliknięciu poza nim
+    document.addEventListener("click", () => {
+        if (dropdownMenu) dropdownMenu.classList.add("hidden");
+    });
+
+    // Obsługa kliknięć kafelków
     storeCards.forEach(card => {
         card.addEventListener("click", async () => {
             storeCards.forEach(c => c.classList.remove("active"));
@@ -40,59 +57,93 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const storeNameNice = selectedStore === "sinsay" ? "Sinsay" : "Lidl";
 
-                if (categorySelect) {
-                    categorySelect.innerHTML = `<option value="">⌛ Pobieranie kategorii z ${storeNameNice}...</option>`;
+                dropdownSelected.innerText = `⌛ Pobieranie kategorii z ${storeNameNice}...`;
+                dropdownMenu.innerHTML = "";
+                categorySelectInput.value = "";
 
-                    try {
-                        const response = await fetch(`${BACKEND_URL}/categories/${selectedStore}`);
-                        const data = await response.json();
+                try {
+                    const response = await fetch(`${BACKEND_URL}/categories/${selectedStore}`);
+                    const data = await response.json();
 
-                        categorySelect.innerHTML = `<option value="">-- Wybierz kategorię z listy (${storeNameNice}) --</option>`;
+                    dropdownSelected.innerText = `-- Wybierz kategorię z listy (${storeNameNice}) --`;
 
-                        if (data.categories && data.categories.length > 0) {
-                            if (selectedStore === "sinsay") {
-                                // Grupowanie w 1 liście pod podnagłówkami (np. Kobieta, Mężczyzna)
-                                const groups = {};
-                                data.categories.forEach(cat => {
-                                    const parts = cat.name.split(" > ");
-                                    const mainGroup = parts[0] || "Inne";
-                                    if (!groups[mainGroup]) groups[mainGroup] = [];
-                                    groups[mainGroup].append ? null : null;
-                                    groups[mainGroup].push({
-                                        id: cat.id,
-                                        label: parts.length > 1 ? `↳ ${parts.slice(1).join(" > ")}` : parts[0]
+                    if (data.categories && data.categories.length > 0) {
+                        if (selectedStore === "sinsay") {
+                            // Grupowanie w drzewko dla Sinsay
+                            const groups = {};
+                            data.categories.forEach(cat => {
+                                const parts = cat.name.split(" > ");
+                                const mainGroup = parts[0] || "Inne";
+                                if (!groups[mainGroup]) groups[mainGroup] = [];
+                                groups[mainGroup].push({
+                                    id: cat.id,
+                                    label: parts.length > 1 ? `↳ ${parts.slice(1).join(" > ")}` : parts[0],
+                                    full_name: cat.name
+                                });
+                            });
+
+                            // Generowanie podlist z ptaszkami
+                            Object.keys(groups).forEach(groupName => {
+                                const groupDiv = document.createElement("div");
+                                groupDiv.className = "tree-group";
+
+                                const headerDiv = document.createElement("div");
+                                headerDiv.className = "tree-header";
+                                headerDiv.innerHTML = `<span>📁 ${groupName}</span> <span class="tree-arrow">▼</span>`;
+
+                                // Rozwijanie / zwijanie gałęzi
+                                headerDiv.addEventListener("click", (e) => {
+                                    e.stopPropagation();
+                                    groupDiv.classList.toggle("open");
+                                });
+
+                                const subContainer = document.createElement("div");
+                                subContainer.className = "tree-subcategories";
+
+                                groups[groupName].forEach(item => {
+                                    const itemDiv = document.createElement("div");
+                                    itemDiv.className = "tree-item";
+                                    itemDiv.innerText = `${item.label} (ID: ${item.id})`;
+
+                                    // Wybór konkretnej podkategorii
+                                    itemDiv.addEventListener("click", (e) => {
+                                        e.stopPropagation();
+                                        categorySelectInput.value = item.id;
+                                        dropdownSelected.innerText = item.full_name;
+                                        dropdownMenu.classList.add("hidden");
                                     });
+
+                                    subContainer.appendChild(itemDiv);
                                 });
 
-                                Object.keys(groups).forEach(groupName => {
-                                    const optgroup = document.createElement("optgroup");
-                                    optgroup.label = `📁 ${groupName.toUpperCase()}`;
-                                    
-                                    groups[groupName].forEach(item => {
-                                        const option = document.createElement("option");
-                                        option.value = item.id;
-                                        option.textContent = `${item.label} (ID: ${item.id})`;
-                                        optgroup.appendChild(option);
-                                    });
-                                    
-                                    categorySelect.appendChild(optgroup);
-                                });
-                            } else {
-                                // Standardowa lista dla Lidla
-                                data.categories.forEach(cat => {
-                                    const option = document.createElement("option");
-                                    option.value = cat.url || cat.id;
-                                    option.textContent = cat.name;
-                                    categorySelect.appendChild(option);
-                                });
-                            }
+                                groupDiv.appendChild(headerDiv);
+                                groupDiv.appendChild(subContainer);
+                                dropdownMenu.appendChild(groupDiv);
+                            });
                         } else {
-                            categorySelect.innerHTML = `<option value="">⚠️ Wpisz ID / URL kategorii ręcznie poniżej</option>`;
+                            // Prosta lista dla Lidla
+                            data.categories.forEach(cat => {
+                                const itemDiv = document.createElement("div");
+                                itemDiv.className = "tree-item";
+                                itemDiv.style.paddingLeft = "15px";
+                                itemDiv.innerText = cat.name;
+
+                                itemDiv.addEventListener("click", (e) => {
+                                    e.stopPropagation();
+                                    categorySelectInput.value = cat.url || cat.id;
+                                    dropdownSelected.innerText = cat.name;
+                                    dropdownMenu.classList.add("hidden");
+                                });
+
+                                dropdownMenu.appendChild(itemDiv);
+                            });
                         }
-                    } catch (err) {
-                        console.error("Błąd pobierania kategorii:", err);
-                        categorySelect.innerHTML = `<option value="">⚠️ Wpisz ID / URL kategorii ręcznie poniżej</option>`;
+                    } else {
+                        dropdownSelected.innerText = `⚠️ Wpisz ID / URL kategorii ręcznie poniżej`;
                     }
+                } catch (err) {
+                    console.error("Błąd pobierania kategorii:", err);
+                    dropdownSelected.innerText = `⚠️ Wpisz ID / URL kategorii ręcznie poniżej`;
                 }
             }
         });
@@ -101,7 +152,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Uruchomienie scrapowania
     if (startBtn) {
         startBtn.addEventListener("click", () => {
-            const category = manualCatInput.value.trim() || categorySelect.value;
+            const category = manualCatInput.value.trim() || categorySelectInput.value;
             const maxProducts = maxProductsInput ? maxProductsInput.value : null;
 
             if (!selectedStore) {
@@ -118,7 +169,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Obsługa statusu i wysyłania zadań
+    // Obsługa statusu i zadań
     async function runScraper(store, category, maxProducts) {
         if (statusSection) statusSection.classList.remove("hidden");
         if (loader) loader.style.display = "block";
