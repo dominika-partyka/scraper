@@ -65,79 +65,64 @@ document.addEventListener("DOMContentLoaded", () => {
                     const response = await fetch(`${BACKEND_URL}/categories/${selectedStore}`);
                     const data = await response.json();
 
-                    dropdownSelected.innerText = ` Otwórz listę `;
+                    dropdownSelected.innerText = `-- Wybierz kategorię z listy (${storeNameNice}) --`;
 
                     if (data.categories && data.categories.length > 0) {
-                        if (selectedStore === "sinsay") {
-                            // Grupowanie w drzewko dla Sinsay
-                            const groups = {};
-                            data.categories.forEach(cat => {
-                                const parts = cat.name.split(" > ");
-                                const mainGroup = parts[0] || "Inne";
-                                if (!groups[mainGroup]) groups[mainGroup] = [];
-                                groups[mainGroup].push({
-                                    id: cat.id,
-                                    label: parts.length > 1 ? `↳ ${parts.slice(1).join(" > ")}` : parts[0],
-                                    full_name: cat.name
-                                });
+                        // Wspólne grupowanie w drzewko folderów (zarówno dla Sinsay, jak i Lidla)
+                        const groups = {};
+                        data.categories.forEach(cat => {
+                            const parts = cat.name.split(" > ");
+                            const mainGroup = parts[0] || "Inne";
+                            if (!groups[mainGroup]) groups[mainGroup] = [];
+                            groups[mainGroup].push({
+                                id: cat.url || cat.id,
+                                label: parts.length > 1 ? `↳ ${parts.slice(1).join(" > ")}` : parts[0],
+                                full_name: cat.name
+                            });
+                        });
+
+                        // Generowanie podlist z ptaszkami i folderami
+                        Object.keys(groups).forEach(groupName => {
+                            const groupDiv = document.createElement("div");
+                            groupDiv.className = "tree-group";
+
+                            const headerDiv = document.createElement("div");
+                            headerDiv.className = "tree-header";
+                            headerDiv.innerHTML = `<span>📁 ${groupName}</span> <span class="tree-arrow">▼</span>`;
+
+                            // Rozwijanie / zwijanie gałęzi
+                            headerDiv.addEventListener("click", (e) => {
+                                e.stopPropagation();
+                                groupDiv.classList.toggle("open");
                             });
 
-                            // Generowanie podlist z ptaszkami
-                            Object.keys(groups).forEach(groupName => {
-                                const groupDiv = document.createElement("div");
-                                groupDiv.className = "tree-group";
+                            const subContainer = document.createElement("div");
+                            subContainer.className = "tree-subcategories";
 
-                                const headerDiv = document.createElement("div");
-                                headerDiv.className = "tree-header";
-                                headerDiv.innerHTML = `<span>📁 ${groupName}</span> <span class="tree-arrow">▼</span>`;
-
-                                // Rozwijanie / zwijanie gałęzi
-                                headerDiv.addEventListener("click", (e) => {
-                                    e.stopPropagation();
-                                    groupDiv.classList.toggle("open");
-                                });
-
-                                const subContainer = document.createElement("div");
-                                subContainer.className = "tree-subcategories";
-
-                                groups[groupName].forEach(item => {
-                                    const itemDiv = document.createElement("div");
-                                    itemDiv.className = "tree-item";
-                                    itemDiv.innerText = `${item.label} (ID: ${item.id})`;
-
-                                    // Wybór konkretnej podkategorii
-                                    itemDiv.addEventListener("click", (e) => {
-                                        e.stopPropagation();
-                                        categorySelectInput.value = item.id;
-                                        dropdownSelected.innerText = item.full_name;
-                                        dropdownMenu.classList.add("hidden");
-                                    });
-
-                                    subContainer.appendChild(itemDiv);
-                                });
-
-                                groupDiv.appendChild(headerDiv);
-                                groupDiv.appendChild(subContainer);
-                                dropdownMenu.appendChild(groupDiv);
-                            });
-                        } else {
-                            // Prosta lista dla Lidla
-                            data.categories.forEach(cat => {
+                            groups[groupName].forEach(item => {
                                 const itemDiv = document.createElement("div");
                                 itemDiv.className = "tree-item";
-                                itemDiv.style.paddingLeft = "15px";
-                                itemDiv.innerText = cat.name;
+                                
+                                // Wyświetlamy ID dla Sinsay, a dla Lidla samą estetyczną nazwę
+                                itemDiv.innerText = selectedStore === "sinsay" 
+                                    ? `${item.label} (ID: ${item.id})`
+                                    : item.label;
 
+                                // Wybór konkretnej podkategorii
                                 itemDiv.addEventListener("click", (e) => {
                                     e.stopPropagation();
-                                    categorySelectInput.value = cat.url || cat.id;
-                                    dropdownSelected.innerText = cat.name;
+                                    categorySelectInput.value = item.id;
+                                    dropdownSelected.innerText = item.full_name;
                                     dropdownMenu.classList.add("hidden");
                                 });
 
-                                dropdownMenu.appendChild(itemDiv);
+                                subContainer.appendChild(itemDiv);
                             });
-                        }
+
+                            groupDiv.appendChild(headerDiv);
+                            groupDiv.appendChild(subContainer);
+                            dropdownMenu.appendChild(groupDiv);
+                        });
                     } else {
                         dropdownSelected.innerText = `⚠️ Wpisz ID / URL kategorii ręcznie poniżej`;
                     }

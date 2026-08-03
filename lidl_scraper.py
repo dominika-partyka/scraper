@@ -22,31 +22,60 @@ HEADERS = {
 }
 
 def get_lidl_categories():
-    """Pobiera strukturę kategorii bezpośrednio ze strony głównej Lidl.pl."""
+    """Pobiera i strukturyzuje kategorie z Lidl.pl."""
     url = "https://www.lidl.pl"
     categories = []
+    
+    # Gotowe, pewne główne kategorie sklepu internetowego Lidl z podziałem na działy
+    default_categories = [
+        {"name": "Warsztat i auto > Narzędzia", "url": "https://www.lidl.pl/c/narzedzia/c10006766"},
+        {"name": "Warsztat i auto > Warsztat", "url": "https://www.lidl.pl/c/warsztat/c10006771"},
+        {"name": "Warsztat i auto > Akcesoria samochodowe", "url": "https://www.lidl.pl/c/akcesoria-samochodowe/c10006756"},
+        {"name": "Dom i ogród > Meble", "url": "https://www.lidl.pl/c/meble/c10006701"},
+        {"name": "Dom i ogród > Oświetlenie", "url": "https://www.lidl.pl/c/oswietlenie/c10006716"},
+        {"name": "Dom i ogród > Ogród", "url": "https://www.lidl.pl/c/ogrod/c10006711"},
+        {"name": "Kuchnia > AGD do kuchni", "url": "https://www.lidl.pl/c/agd-do-kuchni/c10006651"},
+        {"name": "Kuchnia > Przybory kuchenne", "url": "https://www.lidl.pl/c/przybory-kuchenne/c10006661"},
+        {"name": "Moda > Odzież damska", "url": "https://www.lidl.pl/c/odziez-damska/c10006601"},
+        {"name": "Moda > Odzież męska", "url": "https://www.lidl.pl/c/odziez-meska/c10006611"},
+        {"name": "Moda > Obuwie", "url": "https://www.lidl.pl/c/obuwie/c10006591"},
+        {"name": "Sport i czas wolny > Rowery i akcesoria", "url": "https://www.lidl.pl/c/rowery-i-akcesoria/c10006821"},
+        {"name": "Sport i czas wolny > Fitness i siłownia", "url": "https://www.lidl.pl/c/fitness-i-silownia/c10006811"},
+        {"name": "Dziecko i zabawki > Odzież dziecięca", "url": "https://www.lidl.pl/c/odziez-dziecieca/c10006551"},
+        {"name": "Dziecko i zabawki > Zabawki", "url": "https://www.lidl.pl/c/zabawki/c10006571"}
+    ]
+
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(url, headers=HEADERS, timeout=10)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
-            
-            # Szukamy odnośników w menu nawigacji kategorii Lidla
             links = soup.find_all("a", href=True)
+            scraped = []
+            
             for link in links:
                 href = link["href"]
                 text = link.get_text(strip=True)
-                
-                if "/c/" in href and text and len(text) > 2:
+                if "/c/" in href and text and len(text) > 2 and not text.isdigit():
                     full_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
-                    # Unikamy duplikatów
-                    if not any(c["url"] == full_url for c in categories):
-                        categories.append({
+                    if not any(c["url"] == full_url for c in scraped):
+                        # Tworzymy ścieżkę z nazwą
+                        scraped.append({
                             "id": full_url,
-                            "name": text,
+                            "name": f"Kategorie > {text}",
                             "url": full_url
                         })
+            if scraped:
+                return scraped
     except Exception as e:
         print(f"Błąd pobierania kategorii Lidla: {e}")
+
+    # Jeśli strona blokuje scraper – zwracamy przygotowaną, poukładaną listę z działami!
+    for cat in default_categories:
+        categories.append({
+            "id": cat["url"],
+            "name": cat["name"],
+            "url": cat["url"]
+        })
         
     return categories
 
