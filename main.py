@@ -1,6 +1,9 @@
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
+import os
+import uvicorn
+
 from scraper import scrape_sinsay_web, get_categories_from_api, extract_flat_categories
 from lidl_scraper import scrape_lidl_web, get_lidl_categories
 
@@ -56,13 +59,13 @@ def get_categories(store: str):
             return {"categories": []}
 
     elif store == "lidl":
-            try:
-                categories = get_lidl_categories()
-                return {"categories": categories}
-            except Exception as e:
-                print(f"Błąd pobierania kategorii Lidl: {e}")
-                from lidl_scraper import DEFAULT_LIDL_CATEGORIES
-                return {"categories": DEFAULT_LIDL_CATEGORIES}
+        try:
+            categories = get_lidl_categories()
+            return {"categories": categories}
+        except Exception as e:
+            print(f"Błąd pobierania kategorii Lidl: {e}")
+            from lidl_scraper import DEFAULT_LIDL_CATEGORIES
+            return {"categories": DEFAULT_LIDL_CATEGORIES}
 
     return {"categories": []}
 
@@ -96,3 +99,8 @@ def get_status(task_id: str):
     if not task:
         return {"status": "not_found"}
     return task
+
+# --- SEKCJA GWARANTUJĄCA OTWARCIE PORTU DLA RENDERA ---
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 10000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
