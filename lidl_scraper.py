@@ -125,41 +125,48 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             if not products or not isinstance(products, list):
                 break
 
-            # Podgląd struktury pierwszego produktu w logach Rendera
+            # Diagnostyczny zrzut struktury pierwszego elementu do logów Rendera
             if offset == 0 and len(products) > 0:
-                print("--- PODGLĄD STRUKTURY PIERWSZEGO PRODUKTU ---")
-                print(json.dumps(products[0], ensure_ascii=False)[:800])
-                print("--------------------------------------------")
+                print("=== PEŁNY SŁOWNIK PIERWSZEGO PRODUKTU ===")
+                print(json.dumps(products[0], indent=2, ensure_ascii=False)[:1500])
+                print("========================================")
 
             pobrane_na_stronie = 0
             for item in products:
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                # 1. Wyciąganie nazwy ze wszystkich możliwych pól
-                nazwa = ""
-                keyfacts = item.get("keyfacts") if isinstance(item.get("keyfacts"), dict) else {}
-                nazwa = keyfacts.get("fullTitle") or keyfacts.get("title") or ""
+                # 1. Wyciąganie Marki i Tytułu
+                brand_name = ""
+                brand_obj = item.get("brand")
+                if isinstance(brand_obj, dict):
+                    brand_name = brand_obj.get("name") or brand_obj.get("label") or ""
+                elif isinstance(brand_obj, str):
+                    brand_name = brand_obj
 
-                if not nazwa:
-                    nazwa = (
+                title_val = ""
+                keyfacts = item.get("keyfacts") if isinstance(item.get("keyfacts"), dict) else {}
+                title_val = keyfacts.get("fullTitle") or keyfacts.get("title") or ""
+
+                if not title_val:
+                    title_val = (
                         item.get("fullTitle")
                         or item.get("gridTitle")
                         or item.get("title")
-                        or item.get("canonicalTitle")
                         or item.get("name")
-                        or item.get("label")
+                        or item.get("canonicalTitle")
                         or ""
                     )
 
-                if not nazwa and isinstance(item.get("brand"), dict):
-                    nazwa = item.get("brand", {}).get("name", "")
+                if brand_name and title_val and not title_val.lower().startswith(brand_name.lower()):
+                    nazwa = f"{brand_name} {title_val}".strip()
+                else:
+                    nazwa = title_val.strip() if title_val else brand_name.strip()
 
-                nazwa = str(nazwa).strip()
                 if not nazwa:
                     nazwa = f"Produkt {item.get('code') or item.get('itemId') or ''}"
 
-                # 2. Wyciąganie linku
+                # 2. Wyciąganie Linku
                 code = str(item.get("code") or item.get("itemId") or "").strip()
                 url_path = item.get("url") or item.get("canonicalUrl") or ""
 
@@ -178,42 +185,42 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
                 seen_urls.add(pelny_url_clean)
 
-                # 3. Wyciąganie ceny ze słownika lub liczby
+                # 3. Wyciąganie Ceny
                 cena_pln = 0.0
-                price_data = item.get("price") or item.get("price_V1") or item.get("prices") or {}
+                price_obj = item.get("price") or item.get("price_V1") or item.get("gridPrice") or {}
 
-                if isinstance(price_data, dict):
-                    val = (
-                        price_data.get("price")
-                        or price_data.get("current")
-                        or price_data.get("value")
-                        or price_data.get("rawPrice")
-                        or price_data.get("amount")
+                if isinstance(price_obj, dict):
+                    raw_val = (
+                        price_obj.get("price")
+                        or price_obj.get("current")
+                        or price_obj.get("value")
+                        or price_obj.get("rawPrice")
+                        or price_obj.get("amount")
                     )
-                    if val is not None:
+                    if raw_val is not None:
                         try:
-                            cena_pln = float(val)
+                            cena_pln = float(raw_val)
                         except (ValueError, TypeError):
                             cena_pln = 0.0
 
                     if cena_pln == 0.0:
-                        fmt = (
-                            price_data.get("formattedPrice")
-                            or price_data.get("formatted")
-                            or price_data.get("display")
+                        fmt_str = (
+                            price_obj.get("formattedPrice")
+                            or price_obj.get("formatted")
+                            or price_obj.get("display")
                             or ""
                         )
-                        match = re.search(r"(\d+[\.,]?\d*)", str(fmt))
+                        match = re.search(r"(\d+[\.,]?\d*)", str(fmt_str))
                         if match:
                             try:
                                 cena_pln = float(match.group(1).replace(",", "."))
                             except ValueError:
                                 cena_pln = 0.0
 
-                elif isinstance(price_data, (int, float)):
-                    cena_pln = float(price_data)
+                elif isinstance(price_obj, (int, float)):
+                    cena_pln = float(price_obj)
 
-                # 4. Wyciąganie zdjęcia
+                # 4. Wyciąganie Zdjęcia
                 photo_url = ""
                 img_val = item.get("image")
                 if isinstance(img_val, str) and img_val.startswith("http"):
@@ -259,7 +266,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             time.sleep(0.2)
 
         except Exception as e:
-            print(f"Błąd przetwarzania API Lidla: {e}")
+            print(f"Błąd parsowania API Lidla: {e}")
             break
 
     return wszystkie_produkty
