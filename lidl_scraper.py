@@ -97,42 +97,19 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
     if not category_url.startswith("http"):
         category_url = f"https://www.lidl.pl{category_url}"
 
-    wszystkie_produkty = []
-    seen_urls = set()
-
-    print(f"Scrapuję kategorię: {category_url}")
+    print(f"Pobieram URL: {category_url}")
     resp = requests.get(category_url, headers=HEADERS, timeout=15)
     
-    if resp.status_code != 200:
-        print(f"Błąd pobierania strony: Status {resp.status_code}")
-        return []
+    print(f"Końcowy URL (po przekierowaniach): {resp.url}")
+    print(f"Długość pobranego HTML: {len(resp.text)} znaków")
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    scripts = soup.find_all("script")
+    all_links = soup.find_all("a", href=True)
+    print(f"Znaleziono łącznie wszystkich linków <a>: {len(all_links)}")
 
-    print(f"Znaleziono łącznie skryptów <script>: {len(scripts)}")
-
-    # Przeszukujemy treść wszystkich skryptów pod kątem wzorców produktów
-    for i, script in enumerate(scripts):
-        content = script.string or script.get_text() or ""
-        
-        # Szukamy skryptów zawierających dane o produktach/cenach
-        if "/p/" in content and ("price" in content.lower() or "price" in content):
-            print(f"--- Dopasowany skrypt #{i} (długość: {len(content)}) ---")
-            
-            # Próba wyciągnięcia produktów za pomocą wyrażeń regularnych
-            # Szukamy dopasowań wzorca URL produktu i nazwy
-            matches = re.findall(r'\"(/p/[^\"]+)\"', content)
-            print(f"Znalezione linki w skrypcie #{i}: {len(matches)}")
-            
-            # Próbujemy sparsować jako JSON jeśli to obiekt JS
-            try:
-                # Wyszukujemy bloki JSON wewnątrz skryptu
-                json_objects = re.findall(r'\{.*"price".*\}', content)
-                for obj_str in json_objects[:5]:
-                    print(f"Fragment JSON z ceną: {obj_str[:150]}")
-            except Exception:
-                pass
+    # Pokazujemy pierwsze 10 unikalnych linków, żeby zobaczyć ich strukturę
+    sample_hrefs = list(set([a["href"] for a in all_links]))[:10]
+    print(f"Przykładowe linki ze strony: {sample_hrefs}")
 
     return []
 
