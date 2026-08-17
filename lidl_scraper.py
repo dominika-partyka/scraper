@@ -21,9 +21,10 @@ DEFAULT_SHEET_NAME = "Scraper"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "pl-PL,pl;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    "Accept": "application/json, text/plain, */*"
 }
 
+# Usunięto 'Żywność i napoje' z listy głównych kafelków
 LIDL_MAIN_TILES = [
     {"name": "Promocje", "url": "https://www.lidl.pl/q/query/wyprzedaz"},
     {"name": "Dom i wyposażenie wnętrz", "url": "https://www.lidl.pl/c/dom-i-wyposazenie-wnetrz/s10067762"},
@@ -32,7 +33,6 @@ LIDL_MAIN_TILES = [
     {"name": "Sport i wypoczynek", "url": "https://www.lidl.pl/c/sport-i-wypoczynek/s10067763"},
     {"name": "Moda i akcesoria", "url": "https://www.lidl.pl/c/moda-i-akcesoria/s10067765"},
     {"name": "Niemowlę, dziecko i zabawki", "url": "https://www.lidl.pl/c/niemowle-dziecko-i-zabawki/s10067767"},
-    {"name": "Żywność i napoje", "url": "https://www.lidl.pl/c/zywnosc-i-napoje/s10068374"},
 ]
 
 DEFAULT_LIDL_CATEGORIES = [
@@ -107,60 +107,6 @@ def parse_price_value(val):
                 return 0.0
     return 0.0
 
-def fetch_price_from_product_page(product_url):
-    """Pobiera cenę bezpośrednio ze strony produktu dla żywności (JSON-LD -> Meta -> CSS)."""
-    try:
-        resp = requests.get(product_url, headers=HEADERS, timeout=8)
-        if resp.status_code == 200:
-            html = resp.text
-            soup = BeautifulSoup(html, "html.parser")
-
-            # 1. Szukanie w danych ustrukturyzowanych JSON-LD (Schema.org Offer)
-            json_ld_scripts = soup.find_all("script", type="application/ld+json")
-            for script in json_ld_scripts:
-                if not script.string:
-                    continue
-                try:
-                    data = json.loads(script.string)
-                    items_to_check = data if isinstance(data, list) else [data]
-                    for item_data in items_to_check:
-                        offers = item_data.get("offers")
-                        if isinstance(offers, dict):
-                            val = parse_price_value(offers.get("price"))
-                            if val > 0:
-                                return val
-                        elif isinstance(offers, list):
-                            for offer in offers:
-                                val = parse_price_value(offer.get("price"))
-                                if val > 0:
-                                    return val
-                except Exception:
-                    continue
-
-            # 2. Szukanie w meta tagach HTML
-            meta_price = (
-                soup.find("meta", {"itemprop": "price"}) 
-                or soup.find("meta", {"property": "product:price:amount"})
-                or soup.find("meta", {"property": "og:price:amount"})
-            )
-            if meta_price and meta_price.get("content"):
-                val = parse_price_value(meta_price["content"])
-                if val > 0:
-                    return val
-
-            # 3. Szukanie w elementach wizualnych HTML
-            for selector in [".m-price__price", ".price-box__price", ".m-price__price--current", ".m-price"]:
-                el = soup.select_one(selector)
-                if el:
-                    val = parse_price_value(el.get_text(strip=True))
-                    if val > 0:
-                        return val
-
-    except Exception as e:
-        print(f"Błąd pobierania podstrony {product_url}: {e}")
-        
-    return 0.0
-
 def find_price_deep(obj):
     if not isinstance(obj, dict):
         return 0.0
@@ -221,14 +167,18 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 break
 
             pobrane_na_stronie = 0
-            page_items = []
 
             for item in products:
-                if max_products and (len(wszystkie_produkty) + len(page_items)) >= max_products:
+                if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
                 gridbox = item.get("gridbox", {}) if isinstance(item.get("gridbox"), dict) else {}
                 grid_data = gridbox.get("data", {}) if isinstance(gridbox.get("data"), dict) else item
+
+                # Pomiń kategorie spożywcze, jeśli przypadkowo trafią do pętli
+                category_type = str(grid_data.get("category", "")).lower()
+                if "food" in category_type or "zywnosc" in category_type:
+                    continue
 
                 # 1. Nazwa
                 brand_obj = grid_data.get("brand", {})
@@ -302,36 +252,14 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
                 image_formula = f'=IMAGE("{photo_url}")' if photo_url else ""
 
-                page_items.append({
-                    "date": datetime.today().strftime("%Y-%m-%d"),
-                    "image": image_formula,
-                    "name": nazwa,
-                    "price": cena_pln,
-                    "url": pelny_url_clean
-                })
-                pobrane_na_stronie += 1
-
-            # Uzupełnianie brakujących cen (dla produktów spożywczych z cennikiem 0.0)
-            zero_price_urls = [p["url"] for p in page_items if p["price"] == 0.0]
-            if zero_price_urls:
-                print(f"Pobieranie cen ze stron produktowych dla {len(zero_price_urls)} artykułów spożywczych...")
-                with ThreadPoolExecutor(max_workers=10) as executor:
-                    fetched_prices = list(executor.map(fetch_price_from_product_page, zero_price_urls))
-
-                zero_idx = 0
-                for p in page_items:
-                    if p["price"] == 0.0:
-                        p["price"] = fetched_prices[zero_idx]
-                        zero_idx += 1
-
-            for p in page_items:
                 wszystkie_produkty.append([
-                    p["date"],
-                    p["image"],
-                    p["name"],
-                    p["price"],
-                    p["url"]
+                    datetime.today().strftime("%Y-%m-%d"),
+                    image_formula,
+                    nazwa,
+                    cena_pln,
+                    pelny_url_clean,
                 ])
+                pobrane_na_stronie += 1
 
             if progress_callback:
                 progress_callback(len(wszystkie_produkty), max(1, len(wszystkie_produkty)), pominiete_duplikaty)
@@ -361,11 +289,8 @@ def get_sheet(sheet_name):
         creds_file = "credentials.json"
         creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, SCOPE)
 
-    client = getspread_authorize_client(creds)
+    client = gspread.authorize(creds)
     return client.open(sheet_name).sheet1
-
-def getspread_authorize_client(creds):
-    return gspread.authorize(creds)
 
 def write_to_sheet(sheet, wszystkie_produkty):
     sheet.clear()
