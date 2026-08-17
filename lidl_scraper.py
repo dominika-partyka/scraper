@@ -101,29 +101,28 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
     resp = requests.get(category_url, headers=HEADERS, timeout=15)
     html_text = resp.text
 
-    print(f"Długość HTML: {len(html_text)} znaków")
+    # 1. Szukamy eskapowanych adresów produktów (\/p\/) oraz pełnych adresów (https://)
+    escaped_p_links = re.findall(r'\\/p\\/[^\"]+', html_text)
+    full_p_links = re.findall(r'https://www\.lidl\.pl/p/[^\"]+', html_text)
 
-    # 1. Szukamy linków do produktów /p/ bezpośrednio w surowym kodzie HTML (regex)
-    raw_p_links = re.findall(r'\"(/p/[^\"]+)\"', html_text)
-    unique_p_links = list(set(raw_p_links))
-    print(f"Znalezione unikalne linki /p/ przez REGEX: {len(unique_p_links)}")
-    if unique_p_links:
-        print(f"Przykładowe linki /p/: {unique_p_links[:5]}")
+    print(f"Liczba eskapowanych linków (\\/p\\/): {len(escaped_p_links)}")
+    if escaped_p_links:
+        print(f"Przykładowy eskapowany link: {escaped_p_links[0]}")
 
-    # 2. Szukamy wzorców cenowych w surowym tekście
-    price_matches = re.findall(r'\"price\":\s*([\d\.]+)', html_text)
-    print(f"Znalezione wartości 'price' w kodzie: {len(price_matches)}")
-    if price_matches:
-        print(f"Przykładowe ceny: {price_matches[:5]}")
+    print(f"Liczba pełnych linków (https://.../p/): {len(full_p_links)}")
+    if full_p_links:
+        print(f"Przykładowy pełny link: {full_p_links[0]}")
 
-    # 3. Szukamy nazw produktów w strukturze JSON
-    title_matches = re.findall(r'\"title\":\s*\"([^\"]+)\"', html_text)
-    print(f"Znalezione pola 'title' w kodzie: {len(title_matches)}")
-    if title_matches:
-        print(f"Przykładowe tytuły: {title_matches[:5]}")
+    # 2. Wyciągamy fragment kodu HTML/JSON wokół pierwszego wystąpienia frazy 'price'
+    price_idx = html_text.find('"price"')
+    if price_idx != -1:
+        start_snippet = max(0, price_idx - 100)
+        end_snippet = min(len(html_text), price_idx + 250)
+        print("--- FRAGMENT KODU Z CENĄ I DANYMI PRODUKTU ---")
+        print(html_text[start_snippet:end_snippet])
+        print("---------------------------------------------")
 
     return []
-
 
 def get_sheet(sheet_name):
     json_creds_raw = (
