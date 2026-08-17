@@ -22,70 +22,78 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 }
 
-# Gwarantowane kategorie zapasowe, żeby strona NIGDY nie rzuciła żółtym błędem
-DEFAULT_LIDL_CATEGORIES = [
-    {"id": "https://www.lidl.pl/h/sypialnia/h10067552", "name": "Dom i wyposażenie wnętrz > Sypialnia", "url": "https://www.lidl.pl/h/sypialnia/h10067552"},
-    {"id": "https://www.lidl.pl/h/lazienka/h10067553", "name": "Dom i wyposażenie wnętrz > Łazienka", "url": "https://www.lidl.pl/h/lazienka/h10067553"},
-    {"id": "https://www.lidl.pl/h/pokoj-dzienny/h10067554", "name": "Dom i wyposażenie wnętrz > Pokój dzienny", "url": "https://www.lidl.pl/h/pokoj-dzienny/h10067554"},
-    {"id": "https://www.lidl.pl/h/kuchnia-i-jadalnia/h10067556", "name": "Dom i wyposażenie wnętrz > Kuchnia i jadalnia", "url": "https://www.lidl.pl/h/kuchnia-i-jadalnia/h10067556"},
-    {"id": "https://www.lidl.pl/c/meble/c10006701", "name": "Dom i wyposażenie wnętrz > Meble", "url": "https://www.lidl.pl/c/meble/c10006701"},
-    {"id": "https://www.lidl.pl/c/oswietlenie/c10006716", "name": "Dom i wyposażenie wnętrz > Oświetlenie do domu", "url": "https://www.lidl.pl/c/oswietlenie/c10006716"},
-    {"id": "https://www.lidl.pl/c/narzedzia/c10006766", "name": "Warsztat i auto > Narzędzia", "url": "https://www.lidl.pl/c/narzedzia/c10006766"},
-    {"id": "https://www.lidl.pl/c/warsztat/c10006771", "name": "Warsztat i auto > Warsztat", "url": "https://www.lidl.pl/c/warsztat/c10006771"},
-    {"id": "https://www.lidl.pl/c/akcesoria-samochodowe/c10006756", "name": "Warsztat i auto > Akcesoria samochodowe", "url": "https://www.lidl.pl/c/akcesoria-samochodowe/c10006756"},
-    {"id": "https://www.lidl.pl/c/ogrod/c10006711", "name": "Ogród i balkon > Meble ogrodowe i elektronarzędzia", "url": "https://www.lidl.pl/c/ogrod/c10006711"},
-    {"id": "https://www.lidl.pl/c/odziez-damska/c10006601", "name": "Moda > Odzież damska", "url": "https://www.lidl.pl/c/odziez-damska/c10006601"},
-    {"id": "https://www.lidl.pl/c/odziez-meska/c10006611", "name": "Moda > Odzież męska", "url": "https://www.lidl.pl/c/odziez-meska/c10006611"},
-    {"id": "https://www.lidl.pl/c/obuwie/c10006591", "name": "Moda > Obuwie", "url": "https://www.lidl.pl/c/obuwie/c10006591"},
-    {"id": "https://www.lidl.pl/c/agd-do-kuchni/c10006651", "name": "Kuchnia > AGD do kuchni", "url": "https://www.lidl.pl/c/agd-do-kuchni/c10006651"},
-    {"id": "https://www.lidl.pl/c/przybory-kuchenne/c10006661", "name": "Kuchnia > Przybory kuchenne", "url": "https://www.lidl.pl/c/przybory-kuchenne/c10006661"},
-    {"id": "https://www.lidl.pl/c/rowery-i-akcesoria/c10006821", "name": "Sport i czas wolny > Rowery i akcesoria", "url": "https://www.lidl.pl/c/rowery-i-akcesoria/c10006821"},
-    {"id": "https://www.lidl.pl/c/fitness-i-silownia/c10006811", "name": "Sport i czas wolny > Fitness i siłownia", "url": "https://www.lidl.pl/c/fitness-i-silownia/c10006811"}
+# Lista głównych kafelków ze strony głównej Lidla
+LIDL_MAIN_TILES = [
+    {"name": "Promocje", "url": "https://www.lidl.pl/c/promocje/c10006501"},
+    {"name": "Dom i wyposażenie wnętrz", "url": "https://www.lidl.pl/c/dom-i-wyposazenie-wnetrz/c10006700"},
+    {"name": "Kuchnia i gospodarstwo domowe", "url": "https://www.lidl.pl/c/kuchnia-i-gospodarstwo-domowe/c10006650"},
+    {"name": "Warsztat i ogród", "url": "https://www.lidl.pl/c/warsztat-i-ogrod/c10006750"},
+    {"name": "Sport i wypoczynek", "url": "https://www.lidl.pl/c/sport-i-wypoczynek/c10006800"},
+    {"name": "Moda i akcesoria", "url": "https://www.lidl.pl/c/moda-i-akcesoria/c10006550"},
+    {"name": "Niemowlę, dziecko i zabawki", "url": "https://www.lidl.pl/c/niemowle-dziecko-i-zabawki/c10006850"},
+    {"name": "Żywność i napoje", "url": "https://www.lidl.pl/c/zywnosc-i-napoje/c10006900"},
 ]
 
 def get_lidl_categories():
-    """Zwraca strukturę kategorii Lidla."""
-    url = "https://www.lidl.pl"
+    """Pobiera czyste podkategorie z pigułek slidera dla każdego głównego kafelka."""
     categories = []
-    
-    try:
-        # Szybkie zapytanie HTTP z krótkim timeoutem (3 sekundy)
-        resp = requests.get(url, headers=HEADERS, timeout=3)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            nav_links = soup.select("a.n-header__main-navigation-link")
-            
-            for link in nav_links:
-                href = link.get("href", "")
-                text = link.get_text(strip=True)
+
+    for tile in LIDL_MAIN_TILES:
+        main_name = tile["name"]
+        main_url = tile["url"]
+
+        try:
+            resp = requests.get(main_url, headers=HEADERS, timeout=8)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
                 
-                if ("/c/" in href or "/h/" in href) and text and len(text) > 2:
+                # Szukamy linków w sliderze pigułek z Twojego zrzutu
+                sub_links = soup.select("li.ux-base-slider__slide a, .odsc-link-action__element")
+                
+                found_subcategories = 0
+                for link_el in sub_links:
+                    # Pobieramy właściwy znacznik <a>
+                    a_tag = link_el if link_el.name == "a" else link_el.find_parent("a")
+                    if not a_tag:
+                        continue
+
+                    href = a_tag.get("href", "")
+                    text = a_tag.get_text(strip=True)
+
+                    # Ignorujemy puste, "Wszystkie produkty" oraz linki zewnętrzne
+                    if not text or "wszystkie" in text.lower() or len(text) < 2:
+                        continue
+
                     full_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
-                    parent_nav = link.find_parent("ol", class_="n-header__main-navigation-sub")
-                    parent_title = ""
-                    
-                    if parent_nav:
-                        header_el = parent_nav.select_one(".n-header__subnavigation-list_head-item")
-                        if header_el:
-                            parent_title = header_el.get_text(strip=True)
-                    
-                    full_name = f"{parent_title} > {text}" if parent_title else f"Kategorie > {text}"
-                    
+                    full_name = f"{main_name} > {text}"
+
                     if not any(c["url"] == full_url for c in categories):
                         categories.append({
                             "id": full_url,
                             "name": full_name,
                             "url": full_url
                         })
-            
-            if categories:
-                return categories
-    except Exception as e:
-        print(f"Pobieranie w locie z Lidla przerwane (przełączam na listę stałą): {e}")
+                        found_subcategories += 1
 
-    # Jeśli strona nie odpowiedziała w 3s lub zablokowała backend – natychmiast dajemy bezpieczną listę!
-    return DEFAULT_LIDL_CATEGORIES
+                # Jeśli kategoria nie miała slidera, dodajemy samą kategorię główną
+                if found_subcategories == 0:
+                    categories.append({
+                        "id": main_url,
+                        "name": main_name,
+                        "url": main_url
+                    })
 
+        except Exception as e:
+            print(f"Błąd pobierania podkategorii dla {main_name}: {e}")
+            categories.append({
+                "id": main_url,
+                "name": main_name,
+                "url": main_url
+            })
+
+    return categories if categories else DEFAULT_LIDL_CATEGORIES
+
+    
 def extract_lidl_products(category_url, max_products=None, progress_callback=None):
     if not category_url.startswith("http"):
         category_url = f"https://www.lidl.pl{category_url}"
