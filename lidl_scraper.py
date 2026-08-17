@@ -93,6 +93,49 @@ def get_lidl_categories():
                     all_categories.append(cat)
     return all_categories if all_categories else DEFAULT_LIDL_CATEGORIES
 
+def parse_price_value(val):
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        match = re.search(r"(\d+[\.,]?\d*)", val)
+        if match:
+            try:
+                return float(match.group(1).replace(",", "."))
+            except ValueError:
+                return 0.0
+    return 0.0
+
+def find_price_deep(obj):
+    if not isinstance(obj, dict):
+        return 0.0
+
+    # 1. Priorytetowe klucze w słowniku
+    priority_keys = ["price", "current", "discountedPrice", "rawPrice", "value", "strikethroughPrice", "amount"]
+    for k in priority_keys:
+        if k in obj and obj[k] is not None:
+            v = parse_price_value(obj[k])
+            if v > 0:
+                return v
+
+    # 2. Przeszukiwanie sformatowanych tekstów (np. "1,99 zł*")
+    text_keys = ["formattedPrice", "formatted", "display", "text"]
+    for k in text_keys:
+        if k in obj and obj[k]:
+            v = parse_price_value(str(obj[k]))
+            if v > 0:
+                return v
+
+    # 3. Rekurencyjne przeszukanie zagnieżdżonych słowników cenowych
+    for k, v in obj.items():
+        if "price" in k.lower() and isinstance(v, dict):
+            sub_p = find_price_deep(v)
+            if sub_p > 0:
+                return sub_p
+
+    return 0.0
+
 def extract_lidl_products(category_url, max_products=None, progress_callback=None):
     wszystkie_produkty = []
     seen_urls = set()
@@ -134,7 +177,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 gridbox = item.get("gridbox", {}) if isinstance(item.get("gridbox"), dict) else {}
                 grid_data = gridbox.get("data", {}) if isinstance(gridbox.get("data"), dict) else item
 
-                # Nazwa
+                # 1. Nazwa
                 brand_obj = grid_data.get("brand", {})
                 brand_name = brand_obj.get("name", "") if isinstance(brand_obj, dict) else ""
                 raw_title = (
@@ -145,34 +188,87 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                     or ""
                 ).strip()
 
-                nazwa = f"{brand_name} {raw_title}".strip() if brand_name else raw_title
+                if brand_name and raw_title and not raw_title.lower().startswith(brand_name.lower()):
+                    nazwa = f"{brand_name} {raw_title}"
+                else:
+                    nazwa = raw_title or brand_name or f"Produkt {item.get('code', '')}"
 
-                # URL
+                # 2. URL
                 canonical_path = grid_data.get("canonicalPath") or grid_data.get("canonicalUrl") or grid_data.get("url") or ""
                 code = str(item.get("code") or grid_data.get("code") or "").strip()
-                pelny_url = canonical_path if canonical_path.startswith("http") else f"https://www.lidl.pl{canonical_path}"
+                if canonical_path:
+                    pelny_url = canonical_path if canonical_path.startswith("http") else f"https://www.lidl.pl{canonical_path}"
+                elif code:
+                    pelny_url = f"https://www.lidl.pl/p/p{code}"
+                else:
+                    continue
+
                 pelny_url_clean = pelny_url.split('#')[0].split('?')[0]
 
-                # Pobieranie Ceny
-                cena_pln = 0.0
-                price_obj = grid_data.get("price") or {}
-                if isinstance(price_obj, dict):
-                    cena_pln = float(price_obj.get("price") or price_obj.get("current") or 0.0)
+                if pelny_url_clean in seen_urls:
+                    pominiete_duplikaty += 1
+                    continue
 
-                # DIAGNOSTYKA: Jeśli cena wyszła 0, wypisujemy cały słownik tego produktu do logów!
+                seen_urls.add(pelny_url_clean)
+
+                # 3. Odczyt Ceny (sprawdzamy grid_data, price, price_V1, gridPrice oraz główny obiekt item)
+                cena_pln = 0.0
+                price_sources = [
+                    grid_data.get("price"),
+                    grid_data.get("price_V1"),
+                    grid_data.get("gridPrice"),
+                    grid_data.get("priceDiscount"),
+                    item.get("price"),
+                    grid_data
+                ]
+
+                for src in price_sources:
+                    if isinstance(src, dict):
+                        cena_pln = find_price_deep(src)
+                        if cena_pln > 0:
+                            break
+
+                # Jeśli cena wyjdzie 0.0, druukujemy WYSZKOLONY PODGLĄD CENOWY do logów
                 if cena_pln == 0.0:
-                    print(f"=== PRODUKT Z CENĄ 0: {nazwa} ===")
-                    print(json.dumps(grid_data, indent=2, ensure_ascii=False)[:1200])
-                    print("====================================")
+                    print(f"=== ZERO PRICE DEBUG: {nazwa} ===")
+                    print("grid_data.price:", json.dumps(grid_data.get("price"), ensure_ascii=False))
+                    print("grid_data.price_V1:", json.dumps(grid_data.get("price_V1"), ensure_ascii=False))
+                    print("grid_data.gridPrice:", json.dumps(grid_data.get("gridPrice"), ensure_ascii=False))
+                    print("item.price:", json.dumps(item.get("price"), ensure_ascii=False))
+                    print("================================")
+
+                # 4. Zdjęcie
+                photo_url = grid_data.get("image") or grid_data.get("gridImage") or ""
+                if isinstance(photo_url, dict):
+                    photo_url = photo_url.get("src") or photo_url.get("url") or ""
+
+                if not photo_url and isinstance(grid_data.get("imageList"), list) and len(grid_data["imageList"]) > 0:
+                    first_img = grid_data["imageList"][0]
+                    if isinstance(first_img, str):
+                        photo_url = first_img
+                    elif isinstance(first_img, dict):
+                        photo_url = first_img.get("image") or first_img.get("src") or ""
+
+                if photo_url and photo_url.startswith("//"):
+                    photo_url = "https:" + photo_url
+
+                if photo_url:
+                    encoded_url = urllib.parse.quote(photo_url, safe='')
+                    photo_url = f"https://images.weserv.nl/?url={encoded_url}&bg=white&output=jpg"
+
+                image_formula = f'=IMAGE("{photo_url}")' if photo_url else ""
 
                 wszystkie_produkty.append([
                     datetime.today().strftime("%Y-%m-%d"),
-                    "",
+                    image_formula,
                     nazwa,
                     cena_pln,
                     pelny_url_clean,
                 ])
                 pobrane_na_stronie += 1
+
+            if progress_callback:
+                progress_callback(len(wszystkie_produkty), max(1, len(wszystkie_produkty)), pominiete_duplikaty)
 
             if pobrane_na_stronie == 0:
                 break
