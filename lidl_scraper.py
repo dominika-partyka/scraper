@@ -125,53 +125,43 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             if not products or not isinstance(products, list):
                 break
 
-            # Diagnostyczny zrzut struktury pierwszego elementu do logów Rendera
-            if offset == 0 and len(products) > 0:
-                print("=== PEŁNY SŁOWNIK PIERWSZEGO PRODUKTU ===")
-                print(json.dumps(products[0], indent=2, ensure_ascii=False)[:1500])
-                print("========================================")
-
             pobrane_na_stronie = 0
             for item in products:
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                # 1. Wyciąganie Marki i Tytułu
-                brand_name = ""
-                brand_obj = item.get("brand")
-                if isinstance(brand_obj, dict):
-                    brand_name = brand_obj.get("name") or brand_obj.get("label") or ""
-                elif isinstance(brand_obj, str):
-                    brand_name = brand_obj
+                # Wszystkie właściwe dane znajdują się w item["gridbox"]["data"]
+                gridbox = item.get("gridbox", {}) if isinstance(item.get("gridbox"), dict) else {}
+                grid_data = gridbox.get("data", {}) if isinstance(gridbox.get("data"), dict) else item
 
-                title_val = ""
-                keyfacts = item.get("keyfacts") if isinstance(item.get("keyfacts"), dict) else {}
-                title_val = keyfacts.get("fullTitle") or keyfacts.get("title") or ""
+                # 1. Wyciąganie Nazwy (Brand + Title)
+                brand_obj = grid_data.get("brand", {})
+                brand_name = brand_obj.get("name", "") if isinstance(brand_obj, dict) else ""
+                
+                raw_title = (
+                    grid_data.get("title")
+                    or grid_data.get("fullTitle")
+                    or grid_data.get("gridTitle")
+                    or grid_data.get("name")
+                    or ""
+                ).strip()
 
-                if not title_val:
-                    title_val = (
-                        item.get("fullTitle")
-                        or item.get("gridTitle")
-                        or item.get("title")
-                        or item.get("name")
-                        or item.get("canonicalTitle")
-                        or ""
-                    )
-
-                if brand_name and title_val and not title_val.lower().startswith(brand_name.lower()):
-                    nazwa = f"{brand_name} {title_val}".strip()
+                if brand_name and raw_title and not raw_title.lower().startswith(brand_name.lower()):
+                    nazwa = f"{brand_name} {raw_title}"
                 else:
-                    nazwa = title_val.strip() if title_val else brand_name.strip()
+                    nazwa = raw_title or brand_name or f"Produkt {item.get('code', '')}"
 
-                if not nazwa:
-                    nazwa = f"Produkt {item.get('code') or item.get('itemId') or ''}"
+                # 2. Wyciąganie Linku (canonicalPath / canonicalUrl)
+                canonical_path = (
+                    grid_data.get("canonicalPath")
+                    or grid_data.get("canonicalUrl")
+                    or grid_data.get("url")
+                    or ""
+                )
+                code = str(item.get("code") or grid_data.get("code") or "").strip()
 
-                # 2. Wyciąganie Linku
-                code = str(item.get("code") or item.get("itemId") or "").strip()
-                url_path = item.get("url") or item.get("canonicalUrl") or ""
-
-                if url_path and len(url_path) > 1:
-                    pelny_url = url_path if url_path.startswith("http") else f"https://www.lidl.pl{url_path}"
+                if canonical_path:
+                    pelny_url = canonical_path if canonical_path.startswith("http") else f"https://www.lidl.pl{canonical_path}"
                 elif code:
                     pelny_url = f"https://www.lidl.pl/p/p{code}"
                 else:
@@ -187,7 +177,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
                 # 3. Wyciąganie Ceny
                 cena_pln = 0.0
-                price_obj = item.get("price") or item.get("price_V1") or item.get("gridPrice") or {}
+                price_obj = grid_data.get("price") or grid_data.get("gridPrice") or {}
 
                 if isinstance(price_obj, dict):
                     raw_val = (
@@ -195,7 +185,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                         or price_obj.get("current")
                         or price_obj.get("value")
                         or price_obj.get("rawPrice")
-                        or price_obj.get("amount")
                     )
                     if raw_val is not None:
                         try:
@@ -204,12 +193,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                             cena_pln = 0.0
 
                     if cena_pln == 0.0:
-                        fmt_str = (
-                            price_obj.get("formattedPrice")
-                            or price_obj.get("formatted")
-                            or price_obj.get("display")
-                            or ""
-                        )
+                        fmt_str = price_obj.get("formattedPrice") or price_obj.get("formatted") or ""
                         match = re.search(r"(\d+[\.,]?\d*)", str(fmt_str))
                         if match:
                             try:
@@ -221,22 +205,12 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                     cena_pln = float(price_obj)
 
                 # 4. Wyciąganie Zdjęcia
-                photo_url = ""
-                img_val = item.get("image")
-                if isinstance(img_val, str) and img_val.startswith("http"):
-                    photo_url = img_val
-                elif isinstance(img_val, dict):
-                    photo_url = img_val.get("src") or img_val.get("url") or ""
+                photo_url = grid_data.get("image") or grid_data.get("gridImage") or ""
+                if isinstance(photo_url, dict):
+                    photo_url = photo_url.get("src") or photo_url.get("url") or ""
 
-                if not photo_url:
-                    img_v1 = item.get("image_V1")
-                    if isinstance(img_v1, dict):
-                        photo_url = img_v1.get("image") or ""
-                    elif isinstance(img_v1, str):
-                        photo_url = img_v1
-
-                if not photo_url and isinstance(item.get("imageList"), list) and len(item["imageList"]) > 0:
-                    first_img = item["imageList"][0]
+                if not photo_url and isinstance(grid_data.get("imageList"), list) and len(grid_data["imageList"]) > 0:
+                    first_img = grid_data["imageList"][0]
                     if isinstance(first_img, str):
                         photo_url = first_img
                     elif isinstance(first_img, dict):
