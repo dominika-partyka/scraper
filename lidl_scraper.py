@@ -45,7 +45,7 @@ def fetch_single_tile(tile):
     main_url = tile["url"]
     tile_categories = []
 
-    # Domyślnie KAŻDA kategoria główna ma opcję "Wszystkie produkty"
+    # Każda kategoria ZAWSZE dostaje jako pierwszą opcję "Wszystkie produkty"
     tile_categories.append({
         "id": main_url,
         "name": f"{main_name} > Wszystkie produkty",
@@ -53,19 +53,12 @@ def fetch_single_tile(tile):
     })
 
     try:
-        resp = requests.get(main_url, headers=HEADERS, timeout=5)
+        resp = requests.get(main_url, headers=HEADERS, timeout=6)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Poszerzone selektory dla wszystkich typów layoutów Lidla
-            sub_links = soup.select(
-                "li.ux-base-slider__slide a, "
-                ".odsc-link-action__element, "
-                "a[class*='subnavigation'], "
-                "a[class*='chip'], "
-                "a[class*='category-pill'], "
-                ".navigation-item a"
-            )
+            # Selektory wyciągnięte dokładnie z Twojego DevTools (.ANavigationPill i pigułki)
+            sub_links = soup.select("a.ANavigationPill, a.odsc-link-action, li.ux-base-slider__slide a, .odsc-link-action__element")
             
             for link_el in sub_links:
                 a_tag = link_el if link_el.name == "a" else link_el.find_parent("a")
@@ -75,7 +68,6 @@ def fetch_single_tile(tile):
                 href = a_tag.get("href", "")
                 text = a_tag.get_text(strip=True)
 
-                # Ignorujemy puste napisy i nawigację po stronach
                 if not text or len(text) < 2 or "wszystkie" in text.lower():
                     continue
 
@@ -121,7 +113,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
         if max_products and len(wszystkie_produkty) >= max_products:
             break
 
-        # Paginacja w nowym układzie Lidla
+        # Obsługa paginacji
         page_url = f"{category_url}?page={page}" if page > 1 else category_url
         print(f"Scrapuję podstronę Lidla: {page_url}")
 
@@ -132,15 +124,8 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Wszechstronne selektory kart produktów w Lidlu
-            product_cards = soup.select(
-                "li.s-grid__item, "
-                "article.product-grid-box, "
-                "div.product-grid-box, "
-                "article, "
-                "div[data-product-id], "
-                ".grid-box"
-            )
+            # Karty produktów dopasowane precyzyjnie do DevTools (np. li[id*='grid-item'])
+            product_cards = soup.select("li[id*='grid-item'], article.product-grid-box, li.s-grid__item, div[data-product-id]")
 
             if not product_cards:
                 break
@@ -150,51 +135,51 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                # Tytuł
-                title_el = card.select_one(
-                    ".product-grid-box__title, "
-                    "h2, "
-                    ".grid-box__title, "
-                    "a.title, "
-                    "[class*='title']"
-                )
-                nazwa = title_el.get_text(strip=True) if title_el else ""
-
-                if not nazwa or len(nazwa) < 3:
+                # Link i pełna nazwa z odnośnika odczytanego w DevTools (.odsc-tile__link)
+                link_el = card.select_one("a.odsc-tile__link, a[href]")
+                if not link_el:
                     continue
 
-                # Link do produktu
-                link_el = card.select_one("a[href]")
-                href = link_el["href"] if link_el else ""
+                href = link_el.get("href", "")
                 pelny_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
 
+                # Wyciąganie nazwy i ceny z linku/artykułu
+                raw_text = link_el.get_text(strip=True)
+                
                 if pelny_url in seen_urls:
                     pominiete_duplikaty += 1
                     continue
                 seen_urls.add(pelny_url)
 
-                # Cena (wyciągamy tylko aktualną/promocyjną cenę)
-                price_el = card.select_one(
-                    ".price-m__price, "
-                    ".m-price__price, "
-                    ".grid-box__price, "
-                    "[class*='price']"
-                )
-                cena_text = price_el.get_text(strip=True) if price_el else "0"
-                
-                # Bierzemy pierwszą napotkaną kwotę (żeby nie sklejać ze starą skreśloną ceną)
-                match = re.search(r"\d+[\.,]?\d*", cena_text)
-                cena_clean = match.group(0).replace(",", ".") if match else "0"
+                # Wyciąganie nazwy produktu i ceny
+                price_match = re.search(r"dla\s+([\d\.,]+)\s*PLN", raw_text)
+                if price_match:
+                    cena_str = price_match.group(1).replace(",", ".")
+                    nazwa = raw_text.split("dla")[0].strip()
+                    # Usunięcie ID produktu z końca nazwy jeśli występuje
+                    nazwa = re.sub(r"\d+$", "", nazwa).strip()
+                else:
+                    # Alternatywne pobranie ceny ze zwykłych znaczników ceny
+                    title_el = card.select_one("h2, .grid-box__title, [class*='title']")
+                    nazwa = title_el.get_text(strip=True) if title_el else raw_text
+                    price_el = card.select_one("[class*='price']")
+                    cena_str = price_el.get_text(strip=True) if price_el else "0"
+                    match = re.search(r"\d+[\.,]?\d*", cena_str)
+                    cena_str = match.group(0).replace(",", ".") if match else "0"
+
                 try:
-                    cena_pln = float(cena_clean)
+                    cena_pln = float(cena_str)
                 except ValueError:
                     cena_pln = 0.0
 
-                # Zdjęcie
+                if not nazwa or len(nazwa) < 2:
+                    continue
+
+                # Zdjęcie produktu
                 img_el = card.select_one("img")
                 photo_url = ""
                 if img_el:
-                    photo_url = img_el.get("src") or img_el.get("data-src") or img_el.get("srcset", "").split(" ")[0] or ""
+                    photo_url = img_el.get("src") or img_el.get("data-src") or ""
                     if photo_url.startswith("//"):
                         photo_url = "https:" + photo_url
 
