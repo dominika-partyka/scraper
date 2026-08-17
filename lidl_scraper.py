@@ -112,7 +112,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             f"https://www.lidl.pl/q/api/category/{category_slug}"
             f"?offset={offset}&fetchsize=48&locale=pl_PL&assortment=PL&version=2.1.0"
         )
-        print(f"Zapytanie do API Lidla: {api_url}")
 
         try:
             resp = requests.get(api_url, headers=HEADERS, timeout=15)
@@ -124,7 +123,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             products = data.get("items", [])
 
             if not products or not isinstance(products, list):
-                print("Brak kolejnych produktów.")
                 break
 
             pobrane_na_stronie = 0
@@ -132,7 +130,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                # 1. Nazwa produktu (z klucza keyfacts.fullTitle lub zamienników)
+                # 1. Nazwa
                 keyfacts = item.get("keyfacts") if isinstance(item.get("keyfacts"), dict) else {}
                 nazwa = (
                     keyfacts.get("fullTitle")
@@ -143,9 +141,9 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 ).strip()
 
                 if not nazwa:
-                    continue
+                    nazwa = f"Produkt {item.get('code') or item.get('itemId') or ''}"
 
-                # 2. Budowanie linku na podstawie pola code lub url
+                # 2. URL (Identyfikator)
                 code = str(item.get("code") or item.get("itemId") or "").strip()
                 url_path = item.get("url") or item.get("canonicalUrl") or ""
 
@@ -164,7 +162,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
                 seen_urls.add(pelny_url_clean)
 
-                # 3. Wyciąganie ceny
+                # 3. Cena
                 price_data = item.get("price")
                 cena_pln = 0.0
                 if isinstance(price_data, dict):
@@ -172,12 +170,13 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                         price_data.get("price") 
                         or price_data.get("current") 
                         or price_data.get("value") 
+                        or price_data.get("rawPrice")
                         or 0.0
                     )
                 elif isinstance(price_data, (int, float)):
                     cena_pln = float(price_data)
 
-                # 4. Wyciąganie zdjęcia
+                # 4. Zdjęcie
                 photo_url = item.get("image") or ""
                 if not photo_url and isinstance(item.get("image_V1"), dict):
                     photo_url = item.get("image_V1", {}).get("image", "")
@@ -197,16 +196,16 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 pobrane_na_stronie += 1
 
             if progress_callback:
-                progress_callback(len(wszystkie_produkty), max(100, len(wszystkie_produkty)), pominiete_duplikaty)
+                progress_callback(len(wszystkie_produkty), max(1, len(wszystkie_produkty)), pominiete_duplikaty)
 
             if pobrane_na_stronie == 0:
                 break
 
             offset += 48
-            time.sleep(0.3)
+            time.sleep(0.2)
 
         except Exception as e:
-            print(f"Błąd zapytania API Lidla: {e}")
+            print(f"Wyjątek podczas wywołania API: {e}")
             break
 
     return wszystkie_produkty
