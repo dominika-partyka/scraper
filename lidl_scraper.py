@@ -176,16 +176,28 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
                 seen_urls.add(pelny_url_clean)
 
-                # 3. Wyciąganie Ceny
+                
+                # 3. Wyciąganie Ceny (uwzględnia promocje Lidl Plus i obniżki)
                 cena_pln = 0.0
-                price_obj = grid_data.get("price") or grid_data.get("gridPrice") or {}
+                
+                # Szukamy we wszystkich możliwych słownikach cenowych w obiekcie
+                price_obj = (
+                    grid_data.get("price") 
+                    or grid_data.get("priceDiscount") 
+                    or grid_data.get("gridPrice") 
+                    or grid_data.get("price_V1") 
+                    or {}
+                )
 
                 if isinstance(price_obj, dict):
+                    # Bierzemy najpierw cenę po rabacie, potem standardową/przekreśloną
                     raw_val = (
                         price_obj.get("price")
                         or price_obj.get("current")
+                        or price_obj.get("discountedPrice")
                         or price_obj.get("value")
                         or price_obj.get("rawPrice")
+                        or price_obj.get("strikethroughPrice")
                     )
                     if raw_val is not None:
                         try:
@@ -193,14 +205,35 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                         except (ValueError, TypeError):
                             cena_pln = 0.0
 
+                    # Jeśli nadal jest 0.0, parsujemy sformatowany tekst (np. "1,99 zł", "1.99")
                     if cena_pln == 0.0:
-                        fmt_str = price_obj.get("formattedPrice") or price_obj.get("formatted") or ""
+                        fmt_str = (
+                            price_obj.get("formattedPrice") 
+                            or price_obj.get("formatted") 
+                            or price_obj.get("text")
+                            or price_obj.get("display") 
+                            or ""
+                        )
                         match = re.search(r"(\d+[\.,]?\d*)", str(fmt_str))
                         if match:
                             try:
                                 cena_pln = float(match.group(1).replace(",", "."))
                             except ValueError:
                                 cena_pln = 0.0
+
+                elif isinstance(price_obj, (int, float)):
+                    cena_pln = float(price_obj)
+
+                # Awaryjnie: szukamy w surowym obiekcie grid_data pola z ceną
+                if cena_pln == 0.0:
+                    fallback_val = grid_data.get("currentPrice") or grid_data.get("rawPrice")
+                    if fallback_val:
+                        try:
+                            cena_pln = float(fallback_val)
+                        except (ValueError, TypeError):
+                            cena_pln = 0.0
+
+
 
                 elif isinstance(price_obj, (int, float)):
                     cena_pln = float(price_obj)
