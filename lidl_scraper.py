@@ -99,17 +99,28 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
     print(f"Pobieram URL: {category_url}")
     resp = requests.get(category_url, headers=HEADERS, timeout=15)
-    
-    print(f"Końcowy URL (po przekierowaniach): {resp.url}")
-    print(f"Długość pobranego HTML: {len(resp.text)} znaków")
+    html_text = resp.text
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    all_links = soup.find_all("a", href=True)
-    print(f"Znaleziono łącznie wszystkich linków <a>: {len(all_links)}")
+    print(f"Długość HTML: {len(html_text)} znaków")
 
-    # Pokazujemy pierwsze 10 unikalnych linków, żeby zobaczyć ich strukturę
-    sample_hrefs = list(set([a["href"] for a in all_links]))[:10]
-    print(f"Przykładowe linki ze strony: {sample_hrefs}")
+    # 1. Szukamy linków do produktów /p/ bezpośrednio w surowym kodzie HTML (regex)
+    raw_p_links = re.findall(r'\"(/p/[^\"]+)\"', html_text)
+    unique_p_links = list(set(raw_p_links))
+    print(f"Znalezione unikalne linki /p/ przez REGEX: {len(unique_p_links)}")
+    if unique_p_links:
+        print(f"Przykładowe linki /p/: {unique_p_links[:5]}")
+
+    # 2. Szukamy wzorców cenowych w surowym tekście
+    price_matches = re.findall(r'\"price\":\s*([\d\.]+)', html_text)
+    print(f"Znalezione wartości 'price' w kodzie: {len(price_matches)}")
+    if price_matches:
+        print(f"Przykładowe ceny: {price_matches[:5]}")
+
+    # 3. Szukamy nazw produktów w strukturze JSON
+    title_matches = re.findall(r'\"title\":\s*\"([^\"]+)\"', html_text)
+    print(f"Znalezione pola 'title' w kodzie: {len(title_matches)}")
+    if title_matches:
+        print(f"Przykładowe tytuły: {title_matches[:5]}")
 
     return []
 
