@@ -93,23 +93,123 @@ def get_lidl_categories():
     return all_categories if all_categories else DEFAULT_LIDL_CATEGORIES
 
 def extract_lidl_products(category_url, max_products=None, progress_callback=None):
+    wszystkie_produkty = []
+    seen_urls = set()
+    pominiete_duplikaty = 0
+    offset = 0
+
     clean_path = category_url.replace("https://www.lidl.pl/", "").replace("http://www.lidl.pl/", "").strip("/")
     if clean_path.startswith("h/") or clean_path.startswith("c/"):
         category_slug = clean_path[2:]
     else:
         category_slug = clean_path
 
-    api_url = f"https://www.lidl.pl/q/api/category/{category_slug}?offset=0&fetchsize=48&locale=pl_PL&assortment=PL&version=2.1.0"
-    print(f"--- TEST API ---")
-    print(f"INPUT URL: {category_url}")
-    print(f"WYGENEROAWNY SLUG: {category_slug}")
-    print(f"WYSYŁANY API URL: {api_url}")
+    while True:
+        if max_products and len(wszystkie_produkty) >= max_products:
+            break
 
-    resp = requests.get(api_url, headers=HEADERS, timeout=15)
-    print(f"STATUS ODPOWIEDZI API: {resp.status_code}")
-    print(f"FRAGMENT ODPOWIEDZI: {resp.text[:300]}")
+        api_url = (
+            f"https://www.lidl.pl/q/api/category/{category_slug}"
+            f"?offset={offset}&fetchsize=48&locale=pl_PL&assortment=PL&version=2.1.0"
+        )
+        print(f"Zapytanie do API Lidla: {api_url}")
 
-    return []
+        try:
+            resp = requests.get(api_url, headers=HEADERS, timeout=15)
+            if resp.status_code != 200:
+                print(f"Błąd API Lidla: Status {resp.status_code}")
+                break
+
+            data = resp.json()
+            products = data.get("items", [])
+
+            if not products or not isinstance(products, list):
+                print("Brak kolejnych produktów.")
+                break
+
+            pobrane_na_stronie = 0
+            for item in products:
+                if max_products and len(wszystkie_produkty) >= max_products:
+                    break
+
+                # 1. Nazwa produktu (z klucza keyfacts.fullTitle lub zamienników)
+                keyfacts = item.get("keyfacts") if isinstance(item.get("keyfacts"), dict) else {}
+                nazwa = (
+                    keyfacts.get("fullTitle")
+                    or item.get("fullTitle")
+                    or item.get("title")
+                    or item.get("name")
+                    or ""
+                ).strip()
+
+                if not nazwa:
+                    continue
+
+                # 2. Budowanie linku na podstawie pola code lub url
+                code = str(item.get("code") or item.get("itemId") or "").strip()
+                url_path = item.get("url") or item.get("canonicalUrl") or ""
+
+                if url_path and len(url_path) > 1:
+                    pelny_url = url_path if url_path.startswith("http") else f"https://www.lidl.pl{url_path}"
+                elif code:
+                    pelny_url = f"https://www.lidl.pl/p/p{code}"
+                else:
+                    continue
+
+                pelny_url_clean = pelny_url.split('#')[0].split('?')[0]
+
+                if pelny_url_clean in seen_urls:
+                    pominiete_duplikaty += 1
+                    continue
+
+                seen_urls.add(pelny_url_clean)
+
+                # 3. Wyciąganie ceny
+                price_data = item.get("price")
+                cena_pln = 0.0
+                if isinstance(price_data, dict):
+                    cena_pln = float(
+                        price_data.get("price") 
+                        or price_data.get("current") 
+                        or price_data.get("value") 
+                        or 0.0
+                    )
+                elif isinstance(price_data, (int, float)):
+                    cena_pln = float(price_data)
+
+                # 4. Wyciąganie zdjęcia
+                photo_url = item.get("image") or ""
+                if not photo_url and isinstance(item.get("image_V1"), dict):
+                    photo_url = item.get("image_V1", {}).get("image", "")
+
+                if photo_url and photo_url.startswith("//"):
+                    photo_url = "https:" + photo_url
+
+                image_formula = f'=IMAGE("{photo_url}")' if photo_url else ""
+
+                wszystkie_produkty.append([
+                    datetime.today().strftime("%Y-%m-%d"),
+                    image_formula,
+                    nazwa,
+                    cena_pln,
+                    pelny_url_clean,
+                ])
+                pobrane_na_stronie += 1
+
+            if progress_callback:
+                progress_callback(len(wszystkie_produkty), max(100, len(wszystkie_produkty)), pominiete_duplikaty)
+
+            if pobrane_na_stronie == 0:
+                break
+
+            offset += 48
+            time.sleep(0.3)
+
+        except Exception as e:
+            print(f"Błąd zapytania API Lidla: {e}")
+            break
+
+    return wszystkie_produkty
 
 def get_sheet(sheet_name):
     json_creds_raw = (
