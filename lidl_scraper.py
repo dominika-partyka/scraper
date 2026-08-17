@@ -99,8 +99,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
     wszystkie_produkty = []
     seen_urls = set()
-    pominiete_duplikaty = 0
-    offset = 0
 
     print(f"Scrapuję kategorię: {category_url}")
     resp = requests.get(category_url, headers=HEADERS, timeout=15)
@@ -110,78 +108,33 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
         return []
 
     soup = BeautifulSoup(resp.text, "html.parser")
+    scripts = soup.find_all("script")
 
-    # 1. Sprawdzamy występowanie obiektów danych w kodzie źródłowym
-    next_data_script = soup.find("script", id="__NEXT_DATA__")
-    json_ld_scripts = soup.find_all("script", type="application/ld+json")
-    all_p_links = soup.select("a[href*='/p/']")
+    print(f"Znaleziono łącznie skryptów <script>: {len(scripts)}")
 
-    print(f"--- DIAGNOSTYKA KODU HTML ---")
-    print(f"Czy znaleziono __NEXT_DATA__: {'TAK' if next_data_script else 'NIE'}")
-    print(f"Liczba skryptów JSON-LD: {len(json_ld_scripts)}")
-    print(f"Liczba bezpośrednich linków /p/ w HTML: {len(all_p_links)}")
-
-    # 2. Wyciąganie z danych JSON-LD (najczęstszy standard w sklepie Lidl)
-    for script in json_ld_scripts:
-        try:
-            data = json.loads(script.string or "{}")
+    # Przeszukujemy treść wszystkich skryptów pod kątem wzorców produktów
+    for i, script in enumerate(scripts):
+        content = script.string or script.get_text() or ""
+        
+        # Szukamy skryptów zawierających dane o produktach/cenach
+        if "/p/" in content and ("price" in content.lower() or "price" in content):
+            print(f"--- Dopasowany skrypt #{i} (długość: {len(content)}) ---")
             
-            # Gdy dane są w strukturze ItemList
-            items = []
-            if isinstance(data, dict):
-                if data.get("@type") == "ItemList":
-                    items = data.get("itemListElement", [])
-                elif "@graph" in data:
-                    for node in data["@graph"]:
-                        if node.get("@type") == "ItemList":
-                            items = node.get("itemListElement", [])
+            # Próba wyciągnięcia produktów za pomocą wyrażeń regularnych
+            # Szukamy dopasowań wzorca URL produktu i nazwy
+            matches = re.findall(r'\"(/p/[^\"]+)\"', content)
+            print(f"Znalezione linki w skrypcie #{i}: {len(matches)}")
+            
+            # Próbujemy sparsować jako JSON jeśli to obiekt JS
+            try:
+                # Wyszukujemy bloki JSON wewnątrz skryptu
+                json_objects = re.findall(r'\{.*"price".*\}', content)
+                for obj_str in json_objects[:5]:
+                    print(f"Fragment JSON z ceną: {obj_str[:150]}")
+            except Exception:
+                pass
 
-            for el in items:
-                prod = el.get("item", {}) if isinstance(el, dict) else {}
-                url = prod.get("url", "") or prod.get("@id", "")
-                
-                if not url or "/p/" not in url:
-                    continue
-
-                clean_url = url.split('#')[0].split('?')[0]
-                if not clean_url.startswith("http"):
-                    clean_url = f"https://www.lidl.pl{clean_url}"
-
-                if clean_url in seen_urls:
-                    pominiete_duplikaty += 1
-                    continue
-
-                seen_urls.add(clean_url)
-
-                nazwa = prod.get("name", "").strip()
-                photo_url = prod.get("image", "")
-                if isinstance(photo_url, list) and photo_url:
-                    photo_url = photo_url[0]
-
-                offers = prod.get("offers", {})
-                cena_pln = 0.0
-                if isinstance(offers, dict):
-                    cena_pln = float(offers.get("price", 0.0))
-                elif isinstance(offers, list) and offers:
-                    cena_pln = float(offers[0].get("price", 0.0))
-
-                wszystkie_produkty.append([
-                    datetime.today().strftime("%Y-%m-%d"),
-                    f'=IMAGE("{photo_url}")' if photo_url else "",
-                    nazwa,
-                    cena_pln,
-                    clean_url,
-                ])
-
-        except Exception as e:
-            print(f"Błąd parsowania JSON: {e}")
-
-    print(f"Pobrano produktów z JSON: {len(wszystkie_produkty)}")
-
-    if progress_callback:
-        progress_callback(len(wszystkie_produkty), max(100, len(wszystkie_produkty)), pominiete_duplikaty)
-
-    return wszystkie_produkty
+    return []
 
 
 def get_sheet(sheet_name):
