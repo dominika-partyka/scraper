@@ -106,7 +106,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
         if max_products and len(wszystkie_produkty) >= max_products:
             break
 
-        # Paginacja offsetowa zamiast nieobsługiwanego ?page=
         sep = "&" if "?" in category_url else "?"
         page_url = f"{category_url}{sep}offset={offset}" if offset > 0 else category_url
         print(f"Scrapuję podstronę Lidla: {page_url}")
@@ -117,55 +116,55 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 break
 
             soup = BeautifulSoup(resp.text, "html.parser")
-            product_cards = soup.select("li[id*='grid-item'], article.product-grid-box, li.s-grid__item, div[data-product-id]")
 
-            if not product_cards:
-                break
-
+            # 1. Metoda bezpośrednia: szukamy wszystkich linków produktowych /p/ w HTML
+            product_links = soup.select("a[href*='/p/']")
+            
             pobrane_na_stronie = 0
-            for card in product_cards:
+            for link_el in product_links:
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                # Szukamy DOKŁADNIE linku do karty produktu zwierającego '/p/'
-                link_el = card.select_one("a[href*='/p/']")
-                if not link_el:
+                href = link_el.get("href", "")
+                if not href or "/p/" not in href:
                     continue
 
-                href = link_el.get("href", "")
                 pelny_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
-                
-                # Odcinanie śmieci trackingowych (#searchTracking...) do czystego adresu produktu
                 pelny_url_clean = pelny_url.split('#')[0].split('?')[0]
 
                 if pelny_url_clean in seen_urls:
                     pominiete_duplikaty += 1
                     continue
-                seen_urls.add(pelny_url_clean)
 
-                raw_text = link_el.get_text(strip=True)
+                # Szukamy rodzica (karty produktu), w którym znajduje się ten link
+                card = link_el.find_parent(["article", "li", "div"]) or link_el
 
-                price_match = re.search(r"dla\s+([\d\.,]+)\s*PLN", raw_text)
-                if price_match:
-                    cena_str = price_match.group(1).replace(",", ".")
-                    nazwa = raw_text.split("dla")[0].strip()
-                    nazwa = re.sub(r"\d+$", "", nazwa).strip()
-                else:
-                    title_el = card.select_one("h2, .grid-box__title, [class*='title']")
-                    nazwa = title_el.get_text(strip=True) if title_el else raw_text
-                    price_el = card.select_one("[class*='price']")
-                    cena_str = price_el.get_text(strip=True) if price_el else "0"
-                    match = re.search(r"\d+[\.,]?\d*", cena_str)
-                    cena_str = match.group(0).replace(",", ".") if match else "0"
+                raw_text = card.get_text(" ", strip=True)
+                
+                # Wyciąganie nazwy
+                title_el = card.select_one("h2, h3, .grid-box__title, [class*='title']")
+                nazwa = title_el.get_text(strip=True) if title_el else ""
+                if not nazwa:
+                    nazwa = link_el.get_text(strip=True).split("dla")[0].strip()
 
-                try:
-                    cena_pln = float(cena_str)
-                except ValueError:
-                    cena_pln = 0.0
-
-                if not nazwa or len(nazwa) < 2:
+                if not nazwa or len(nazwa) < 3 or "zł" in nazwa.lower():
                     continue
 
+                seen_urls.add(pelny_url_clean)
+
+                # Wyciąganie ceny
+                cena_pln = 0.0
+                price_match = re.search(r"(\d+[\.,]?\d*)\s*(?:zł|PLN)", raw_text, re.IGNORECASE)
+                if not price_match:
+                    price_match = re.search(r"dla\s+([\d\.,]+)", raw_text, re.IGNORECASE)
+
+                if price_match:
+                    try:
+                        cena_pln = float(price_match.group(1).replace(",", "."))
+                    except ValueError:
+                        cena_pln = 0.0
+
+                # Wyciąganie zdjęcia
                 img_el = card.select_one("img")
                 photo_url = ""
                 if img_el:
@@ -184,6 +183,40 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 ])
                 pobrane_na_stronie += 1
 
+            # 2. Awaryjne wyciąganie z obiektów JSON w kodzie strony (jeśli brak HTML)
+            if pobrane_na_stronie == 0:
+                script_tags = soup.select("script[type='application/ld+json']")
+                for script in script_tags:
+                    try:
+                        data = json.loads(script.string or "{}")
+                        if data.get("@type") == "ItemList" and "itemListElement" in data:
+                            for item in data["itemListElement"]:
+                                prod = item.get("item", {})
+                                prod_url = prod.get("url", "")
+                                if not prod_url:
+                                    continue
+                                
+                                prod_url_clean = prod_url.split('#')[0].split('?')[0]
+                                if prod_url_clean in seen_urls:
+                                    continue
+                                
+                                seen_urls.add(prod_url_clean)
+                                prod_name = prod.get("name", "")
+                                prod_img = prod.get("image", "")
+                                offers = prod.get("offers", {})
+                                prod_price = float(offers.get("price", 0.0)) if isinstance(offers, dict) else 0.0
+
+                                wszystkie_produkty.append([
+                                    datetime.today().strftime("%Y-%m-%d"),
+                                    f'=IMAGE("{prod_img}")' if prod_img else "",
+                                    prod_name,
+                                    prod_price,
+                                    prod_url_clean,
+                                ])
+                                pobrane_na_stronie += 1
+                    except Exception:
+                        continue
+
             if progress_callback:
                 progress_callback(len(wszystkie_produkty), max(total_estimated, len(wszystkie_produkty)), pominiete_duplikaty)
 
@@ -198,6 +231,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             break
 
     return wszystkie_produkty
+    
 
 def get_sheet(sheet_name):
     json_creds_raw = (
