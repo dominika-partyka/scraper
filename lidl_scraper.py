@@ -9,6 +9,7 @@ import gspread
 import requests
 from bs4 import BeautifulSoup
 from oauth2client.service_account import ServiceAccountCredentials
+from concurrent.futures import ThreadPoolExecutor
 
 SCOPE = [
     "https://spreadsheets.google.com/feeds",
@@ -22,76 +23,78 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 }
 
-# Lista głównych kafelków ze strony głównej Lidla
 LIDL_MAIN_TILES = [
-    {"name": "Promocje", "url": "https://www.lidl.pl/c/promocje/c10006501"},
-    {"name": "Dom i wyposażenie wnętrz", "url": "https://www.lidl.pl/c/dom-i-wyposazenie-wnetrz/c10006700"},
-    {"name": "Kuchnia i gospodarstwo domowe", "url": "https://www.lidl.pl/c/kuchnia-i-gospodarstwo-domowe/c10006650"},
-    {"name": "Warsztat i ogród", "url": "https://www.lidl.pl/c/warsztat-i-ogrod/c10006750"},
-    {"name": "Sport i wypoczynek", "url": "https://www.lidl.pl/c/sport-i-wypoczynek/c10006800"},
-    {"name": "Moda i akcesoria", "url": "https://www.lidl.pl/c/moda-i-akcesoria/c10006550"},
-    {"name": "Niemowlę, dziecko i zabawki", "url": "https://www.lidl.pl/c/niemowle-dziecko-i-zabawki/c10006850"},
-    {"name": "Żywność i napoje", "url": "https://www.lidl.pl/c/zywnosc-i-napoje/c10006900"},
+    {"name": "Wyprzedaż", "url": "https://www.lidl.pl/q/query/wyprzedaz"},
+    {"name": "Dom i wyposażenie wnętrz", "url": "https://www.lidl.pl/c/dom-i-wyposazenie-wnetrz/s10067762"},
+    {"name": "Kuchnia, sprzątanie i organizacja", "url": "https://www.lidl.pl/c/kuchnia-sprzatanie-i-organizacja/s10067764"},
+    {"name": "Warsztat i ogród", "url": "https://www.lidl.pl/c/warsztat-i-ogrod/s10067761"},
+    {"name": "Sport i wypoczynek", "url": "https://www.lidl.pl/c/sport-i-wypoczynek/s10067763"},
+    {"name": "Moda i akcesoria", "url": "https://www.lidl.pl/c/moda-i-akcesoria/s10067765"},
+    {"name": "Niemowlę, dziecko i zabawki", "url": "https://www.lidl.pl/c/niemowle-dziecko-i-zabawki/s10067767"},
+    {"name": "Żywność i napoje", "url": "https://www.lidl.pl/c/zywnosc-i-napoje/s10068374"},
 ]
 
+def fetch_single_tile(tile):
+    main_name = tile["name"]
+    main_url = tile["url"]
+    tile_categories = []
+
+    try:
+        resp = requests.get(main_url, headers=HEADERS, timeout=4)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            sub_links = soup.select("li.ux-base-slider__slide a, .odsc-link-action__element")
+            
+            found_subcategories = 0
+            for link_el in sub_links:
+                a_tag = link_el if link_el.name == "a" else link_el.find_parent("a")
+                if not a_tag:
+                    continue
+
+                href = a_tag.get("href", "")
+                text = a_tag.get_text(strip=True)
+
+                if not text or "wszystkie" in text.lower() or len(text) < 2:
+                    continue
+
+                full_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
+                full_name = f"{main_name} > {text}"
+
+                tile_categories.append({
+                    "id": full_url,
+                    "name": full_name,
+                    "url": full_url
+                })
+                found_subcategories += 1
+
+            if found_subcategories == 0:
+                tile_categories.append({
+                    "id": main_url,
+                    "name": main_name,
+                    "url": main_url
+                })
+    except Exception as e:
+        print(f"Błąd pobierania podkategorii dla {main_name}: {e}")
+        tile_categories.append({
+            "id": main_url,
+            "name": main_name,
+            "url": main_url
+        })
+
+    return tile_categories
+
 def get_lidl_categories():
-    """Pobiera czyste podkategorie z pigułek slidera dla każdego głównego kafelka."""
-    categories = []
+    """Pobiera podkategorie ze wszystkich kafelków równolegle."""
+    all_categories = []
+    
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = executor.map(fetch_single_tile, LIDL_MAIN_TILES)
+        for tile_cats in results:
+            for cat in tile_cats:
+                if not any(c["url"] == cat["url"] for c in all_categories):
+                    all_categories.append(cat)
 
-    for tile in LIDL_MAIN_TILES:
-        main_name = tile["name"]
-        main_url = tile["url"]
-
-        try:
-            resp = requests.get(main_url, headers=HEADERS, timeout=8)
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                
-                # Szukamy linków w sliderze pigułek z Twojego zrzutu
-                sub_links = soup.select("li.ux-base-slider__slide a, .odsc-link-action__element")
-                
-                found_subcategories = 0
-                for link_el in sub_links:
-                    # Pobieramy właściwy znacznik <a>
-                    a_tag = link_el if link_el.name == "a" else link_el.find_parent("a")
-                    if not a_tag:
-                        continue
-
-                    href = a_tag.get("href", "")
-                    text = a_tag.get_text(strip=True)
-
-                    # Ignorujemy puste, "Wszystkie produkty" oraz linki zewnętrzne
-                    if not text or "wszystkie" in text.lower() or len(text) < 2:
-                        continue
-
-                    full_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
-                    full_name = f"{main_name} > {text}"
-
-                    if not any(c["url"] == full_url for c in categories):
-                        categories.append({
-                            "id": full_url,
-                            "name": full_name,
-                            "url": full_url
-                        })
-                        found_subcategories += 1
-
-                # Jeśli kategoria nie miała slidera, dodajemy samą kategorię główną
-                if found_subcategories == 0:
-                    categories.append({
-                        "id": main_url,
-                        "name": main_name,
-                        "url": main_url
-                    })
-
-        except Exception as e:
-            print(f"Błąd pobierania podkategorii dla {main_name}: {e}")
-            categories.append({
-                "id": main_url,
-                "name": main_name,
-                "url": main_url
-            })
-
-    return categories if categories else DEFAULT_LIDL_CATEGORIES
+    return all_categories if all_categories else DEFAULT_LIDL_CATEGORIES
 
     
 def extract_lidl_products(category_url, max_products=None, progress_callback=None):
