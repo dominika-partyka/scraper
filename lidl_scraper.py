@@ -44,7 +44,6 @@ def fetch_single_tile(tile):
     main_url = tile["url"]
     tile_categories = []
 
-    # Gwarantowana kategoria "Wszystkie produkty" dla każdego działu
     tile_categories.append({
         "id": main_url,
         "name": f"{main_name} > Wszystkie produkty",
@@ -55,8 +54,6 @@ def fetch_single_tile(tile):
         resp = requests.get(main_url, headers=HEADERS, timeout=6)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
-            
-            # Pobieranie WSZYSTKICH elementów slidera (z uwzględnieniem pigułek z /h/ i /c/)
             sub_links = soup.select("li.ux-base-slider__slide a, a.ANavigationPill, a.odsc-link-action")
             
             for link_el in sub_links:
@@ -86,16 +83,13 @@ def fetch_single_tile(tile):
     return tile_categories
 
 def get_lidl_categories():
-    """Pobiera podkategorie ze wszystkich kafelków równolegle."""
     all_categories = []
-    
     with ThreadPoolExecutor(max_workers=8) as executor:
         results = executor.map(fetch_single_tile, LIDL_MAIN_TILES)
         for tile_cats in results:
             for cat in tile_cats:
                 if not any(c["url"] == cat["url"] for c in all_categories):
                     all_categories.append(cat)
-
     return all_categories if all_categories else DEFAULT_LIDL_CATEGORIES
 
 def extract_lidl_products(category_url, max_products=None, progress_callback=None):
@@ -112,7 +106,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
         if max_products and len(wszystkie_produkty) >= max_products:
             break
 
-        # Prawidłowa paginacja offsetowa Lidla (co 48 produktów)
+        # Paginacja offsetowa zamiast nieobsługiwanego ?page=
         sep = "&" if "?" in category_url else "?"
         page_url = f"{category_url}{sep}offset={offset}" if offset > 0 else category_url
         print(f"Scrapuję podstronę Lidla: {page_url}")
@@ -123,8 +117,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 break
 
             soup = BeautifulSoup(resp.text, "html.parser")
-            
-            # Szukamy kart produktów (elementy li z gridu lub klas tile)
             product_cards = soup.select("li[id*='grid-item'], article.product-grid-box, li.s-grid__item, div[data-product-id]")
 
             if not product_cards:
@@ -135,21 +127,24 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                link_el = card.select_one("a.odsc-tile__link, a[href]")
+                # Szukamy DOKŁADNIE linku do karty produktu zwierającego '/p/'
+                link_el = card.select_one("a[href*='/p/']")
                 if not link_el:
                     continue
 
                 href = link_el.get("href", "")
                 pelny_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
+                
+                # Odcinanie śmieci trackingowych (#searchTracking...) do czystego adresu produktu
+                pelny_url_clean = pelny_url.split('#')[0].split('?')[0]
 
-                if pelny_url in seen_urls:
+                if pelny_url_clean in seen_urls:
                     pominiete_duplikaty += 1
                     continue
-                seen_urls.add(pelny_url)
+                seen_urls.add(pelny_url_clean)
 
                 raw_text = link_el.get_text(strip=True)
 
-                # Wyciąganie nazwy oraz ceny z ciągu tekstu karty
                 price_match = re.search(r"dla\s+([\d\.,]+)\s*PLN", raw_text)
                 if price_match:
                     cena_str = price_match.group(1).replace(",", ".")
@@ -171,7 +166,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 if not nazwa or len(nazwa) < 2:
                     continue
 
-                # Zdjęcie
                 img_el = card.select_one("img")
                 photo_url = ""
                 if img_el:
@@ -186,14 +180,13 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                     image_formula,
                     nazwa,
                     cena_pln,
-                    pelny_url,
+                    pelny_url_clean,
                 ])
                 pobrane_na_stronie += 1
 
             if progress_callback:
                 progress_callback(len(wszystkie_produkty), max(total_estimated, len(wszystkie_produkty)), pominiete_duplikaty)
 
-            # Jeśli na danej stronie nie było nowych produktów, kończymy
             if pobrane_na_stronie == 0:
                 break
 
