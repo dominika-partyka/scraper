@@ -10,6 +10,7 @@ import gspread
 import requests
 from bs4 import BeautifulSoup
 from oauth2client.service_account import ServiceAccountCredentials
+import urllib.parse
 
 SCOPE = [
     "https://spreadsheets.google.com/feeds",
@@ -203,8 +204,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
                 elif isinstance(price_obj, (int, float)):
                     cena_pln = float(price_obj)
-
-                # 4. Wyciąganie Zdjęcia
+                # 4. Wyciąganie Zdjęcia i konwersja przezroczystego tła na biały JPG
                 photo_url = grid_data.get("image") or grid_data.get("gridImage") or ""
                 if isinstance(photo_url, dict):
                     photo_url = photo_url.get("src") or photo_url.get("url") or ""
@@ -218,6 +218,11 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
                 if photo_url and photo_url.startswith("//"):
                     photo_url = "https:" + photo_url
+
+                # Konwersja kanału alfa (przezroczystości) na białe tło dla Google Sheets
+                if photo_url:
+                    encoded_url = urllib.parse.quote(photo_url, safe='')
+                    photo_url = f"https://images.weserv.nl/?url={encoded_url}&bg=white&output=jpg"
 
                 image_formula = f'=IMAGE("{photo_url}")' if photo_url else ""
 
