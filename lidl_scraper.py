@@ -131,14 +131,12 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                # Wszystkie właściwe dane znajdują się w item["gridbox"]["data"]
                 gridbox = item.get("gridbox", {}) if isinstance(item.get("gridbox"), dict) else {}
                 grid_data = gridbox.get("data", {}) if isinstance(gridbox.get("data"), dict) else item
 
-                # 1. Wyciąganie Nazwy (Brand + Title)
+                # Nazwa
                 brand_obj = grid_data.get("brand", {})
                 brand_name = brand_obj.get("name", "") if isinstance(brand_obj, dict) else ""
-                
                 raw_title = (
                     grid_data.get("title")
                     or grid_data.get("fullTitle")
@@ -147,129 +145,34 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                     or ""
                 ).strip()
 
-                if brand_name and raw_title and not raw_title.lower().startswith(brand_name.lower()):
-                    nazwa = f"{brand_name} {raw_title}"
-                else:
-                    nazwa = raw_title or brand_name or f"Produkt {item.get('code', '')}"
+                nazwa = f"{brand_name} {raw_title}".strip() if brand_name else raw_title
 
-                # 2. Wyciąganie Linku (canonicalPath / canonicalUrl)
-                canonical_path = (
-                    grid_data.get("canonicalPath")
-                    or grid_data.get("canonicalUrl")
-                    or grid_data.get("url")
-                    or ""
-                )
+                # URL
+                canonical_path = grid_data.get("canonicalPath") or grid_data.get("canonicalUrl") or grid_data.get("url") or ""
                 code = str(item.get("code") or grid_data.get("code") or "").strip()
-
-                if canonical_path:
-                    pelny_url = canonical_path if canonical_path.startswith("http") else f"https://www.lidl.pl{canonical_path}"
-                elif code:
-                    pelny_url = f"https://www.lidl.pl/p/p{code}"
-                else:
-                    continue
-
+                pelny_url = canonical_path if canonical_path.startswith("http") else f"https://www.lidl.pl{canonical_path}"
                 pelny_url_clean = pelny_url.split('#')[0].split('?')[0]
 
-                if pelny_url_clean in seen_urls:
-                    pominiete_duplikaty += 1
-                    continue
-
-                seen_urls.add(pelny_url_clean)
-
-                
-                # 3. Wyciąganie Ceny (uwzględnia promocje Lidl Plus i obniżki)
+                # Pobieranie Ceny
                 cena_pln = 0.0
-                
-                # Szukamy we wszystkich możliwych słownikach cenowych w obiekcie
-                price_obj = (
-                    grid_data.get("price") 
-                    or grid_data.get("priceDiscount") 
-                    or grid_data.get("gridPrice") 
-                    or grid_data.get("price_V1") 
-                    or {}
-                )
-
+                price_obj = grid_data.get("price") or {}
                 if isinstance(price_obj, dict):
-                    # Bierzemy najpierw cenę po rabacie, potem standardową/przekreśloną
-                    raw_val = (
-                        price_obj.get("price")
-                        or price_obj.get("current")
-                        or price_obj.get("discountedPrice")
-                        or price_obj.get("value")
-                        or price_obj.get("rawPrice")
-                        or price_obj.get("strikethroughPrice")
-                    )
-                    if raw_val is not None:
-                        try:
-                            cena_pln = float(raw_val)
-                        except (ValueError, TypeError):
-                            cena_pln = 0.0
+                    cena_pln = float(price_obj.get("price") or price_obj.get("current") or 0.0)
 
-                    # Jeśli nadal jest 0.0, parsujemy sformatowany tekst (np. "1,99 zł", "1.99")
-                    if cena_pln == 0.0:
-                        fmt_str = (
-                            price_obj.get("formattedPrice") 
-                            or price_obj.get("formatted") 
-                            or price_obj.get("text")
-                            or price_obj.get("display") 
-                            or ""
-                        )
-                        match = re.search(r"(\d+[\.,]?\d*)", str(fmt_str))
-                        if match:
-                            try:
-                                cena_pln = float(match.group(1).replace(",", "."))
-                            except ValueError:
-                                cena_pln = 0.0
-
-                elif isinstance(price_obj, (int, float)):
-                    cena_pln = float(price_obj)
-
-                # Awaryjnie: szukamy w surowym obiekcie grid_data pola z ceną
+                # DIAGNOSTYKA: Jeśli cena wyszła 0, wypisujemy cały słownik tego produktu do logów!
                 if cena_pln == 0.0:
-                    fallback_val = grid_data.get("currentPrice") or grid_data.get("rawPrice")
-                    if fallback_val:
-                        try:
-                            cena_pln = float(fallback_val)
-                        except (ValueError, TypeError):
-                            cena_pln = 0.0
-
-
-
-                elif isinstance(price_obj, (int, float)):
-                    cena_pln = float(price_obj)
-                # 4. Wyciąganie Zdjęcia i konwersja przezroczystego tła na biały JPG
-                photo_url = grid_data.get("image") or grid_data.get("gridImage") or ""
-                if isinstance(photo_url, dict):
-                    photo_url = photo_url.get("src") or photo_url.get("url") or ""
-
-                if not photo_url and isinstance(grid_data.get("imageList"), list) and len(grid_data["imageList"]) > 0:
-                    first_img = grid_data["imageList"][0]
-                    if isinstance(first_img, str):
-                        photo_url = first_img
-                    elif isinstance(first_img, dict):
-                        photo_url = first_img.get("image") or first_img.get("src") or ""
-
-                if photo_url and photo_url.startswith("//"):
-                    photo_url = "https:" + photo_url
-
-                # Konwersja kanału alfa (przezroczystości) na białe tło dla Google Sheets
-                if photo_url:
-                    encoded_url = urllib.parse.quote(photo_url, safe='')
-                    photo_url = f"https://images.weserv.nl/?url={encoded_url}&bg=white&output=jpg"
-
-                image_formula = f'=IMAGE("{photo_url}")' if photo_url else ""
+                    print(f"=== PRODUKT Z CENĄ 0: {nazwa} ===")
+                    print(json.dumps(grid_data, indent=2, ensure_ascii=False)[:1200])
+                    print("====================================")
 
                 wszystkie_produkty.append([
                     datetime.today().strftime("%Y-%m-%d"),
-                    image_formula,
+                    "",
                     nazwa,
                     cena_pln,
                     pelny_url_clean,
                 ])
                 pobrane_na_stronie += 1
-
-            if progress_callback:
-                progress_callback(len(wszystkie_produkty), max(1, len(wszystkie_produkty)), pominiete_duplikaty)
 
             if pobrane_na_stronie == 0:
                 break
@@ -278,7 +181,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             time.sleep(0.2)
 
         except Exception as e:
-            print(f"Błąd parsowania API Lidla: {e}")
+            print(f"Błąd: {e}")
             break
 
     return wszystkie_produkty
