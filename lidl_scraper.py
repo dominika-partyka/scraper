@@ -20,7 +20,7 @@ DEFAULT_SHEET_NAME = "Scraper"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "pl-PL,pl;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    "Accept": "application/json, text/plain, */*"
 }
 
 LIDL_MAIN_TILES = [
@@ -92,37 +92,105 @@ def get_lidl_categories():
                     all_categories.append(cat)
     return all_categories if all_categories else DEFAULT_LIDL_CATEGORIES
 
-
 def extract_lidl_products(category_url, max_products=None, progress_callback=None):
-    if not category_url.startswith("http"):
-        category_url = f"https://www.lidl.pl{category_url}"
+    wszystkie_produkty = []
+    seen_urls = set()
+    pominiete_duplikaty = 0
+    offset = 0
 
-    print(f"Pobieram URL: {category_url}")
-    resp = requests.get(category_url, headers=HEADERS, timeout=15)
-    html_text = resp.text
+    # Wyciągamy względną ścieżkę kategorii z adresu URL
+    clean_path = category_url.replace("https://www.lidl.pl/", "").replace("http://www.lidl.pl/", "").strip("/")
+    
+    while True:
+        if max_products and len(wszystkie_produkty) >= max_products:
+            break
 
-    # 1. Szukamy eskapowanych adresów produktów (\/p\/) oraz pełnych adresów (https://)
-    escaped_p_links = re.findall(r'\\/p\\/[^\"]+', html_text)
-    full_p_links = re.findall(r'https://www\.lidl\.pl/p/[^\"]+', html_text)
+        # Budujemy bezpośrednie zapytanie do odkrytego API Lidla
+        api_url = (
+            f"https://www.lidl.pl/q/api/category/{clean_path}"
+            f"?assortment=PL&locale=pl_PL&version=v2.0.0&offset={offset}&limit=50"
+        )
+        print(f"Zapytanie do API Lidla: {api_url}")
 
-    print(f"Liczba eskapowanych linków (\\/p\\/): {len(escaped_p_links)}")
-    if escaped_p_links:
-        print(f"Przykładowy eskapowany link: {escaped_p_links[0]}")
+        try:
+            resp = requests.get(api_url, headers=HEADERS, timeout=15)
+            if resp.status_code != 200:
+                print(f"Błąd API Lidla: Status {resp.status_code}")
+                break
 
-    print(f"Liczba pełnych linków (https://.../p/): {len(full_p_links)}")
-    if full_p_links:
-        print(f"Przykładowy pełny link: {full_p_links[0]}")
+            data = resp.json()
+            products = data.get("products", []) or data.get("items", [])
+            
+            # Występuje w strukturze jako np. data["grid"]["products"]
+            if not products and "grid" in data and isinstance(data["grid"], dict):
+                products = data["grid"].get("products", [])
 
-    # 2. Wyciągamy fragment kodu HTML/JSON wokół pierwszego wystąpienia frazy 'price'
-    price_idx = html_text.find('"price"')
-    if price_idx != -1:
-        start_snippet = max(0, price_idx - 100)
-        end_snippet = min(len(html_text), price_idx + 250)
-        print("--- FRAGMENT KODU Z CENĄ I DANYMI PRODUKTU ---")
-        print(html_text[start_snippet:end_snippet])
-        print("---------------------------------------------")
+            if not products or not isinstance(products, list):
+                print("Brak kolejnych produktów w odpowiedzi API.")
+                break
 
-    return []
+            pobrane_na_stronie = 0
+            for item in products:
+                if max_products and len(wszystkie_produkty) >= max_products:
+                    break
+
+                # Odnośnik do produktu
+                canonical = item.get("canonicalUrl", "") or item.get("url", "") or item.get("link", "")
+                if not canonical:
+                    continue
+
+                pelny_url = canonical if canonical.startswith("http") else f"https://www.lidl.pl{canonical}"
+                pelny_url_clean = pelny_url.split('#')[0].split('?')[0]
+
+                if pelny_url_clean in seen_urls:
+                    pominiete_duplikaty += 1
+                    continue
+
+                seen_urls.add(pelny_url_clean)
+
+                # Nazwa
+                nazwa = item.get("title", "") or item.get("name", "") or item.get("gridTitle", "")
+                
+                # Cena
+                price_obj = item.get("price", {})
+                cena_pln = 0.0
+                if isinstance(price_obj, dict):
+                    cena_pln = float(price_obj.get("price", 0.0) or price_obj.get("current", 0.0) or 0.0)
+                elif isinstance(price_obj, (int, float)):
+                    cena_pln = float(price_obj)
+
+                # Zdjęcie
+                photo_url = item.get("image", "") or item.get("gridImage", "") or item.get("imageUrl", "")
+                if isinstance(photo_url, dict):
+                    photo_url = photo_url.get("src", "")
+                if photo_url and photo_url.startswith("//"):
+                    photo_url = "https:" + photo_url
+
+                image_formula = f'=IMAGE("{photo_url}")' if photo_url else ""
+
+                wszystkie_produkty.append([
+                    datetime.today().strftime("%Y-%m-%d"),
+                    image_formula,
+                    nazwa,
+                    cena_pln,
+                    pelny_url_clean,
+                ])
+                pobrane_na_stronie += 1
+
+            if progress_callback:
+                progress_callback(len(wszystkie_produkty), max(100, len(wszystkie_produkty)), pominiete_duplikaty)
+
+            if pobrane_na_stronie == 0:
+                break
+
+            offset += 50
+            time.sleep(0.3)
+
+        except Exception as e:
+            print(f"Błąd zapytania API Lidla: {e}")
+            break
+
+    return wszystkie_produkty
 
 def get_sheet(sheet_name):
     json_creds_raw = (
