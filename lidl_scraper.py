@@ -23,7 +23,6 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 }
 
-# Główne kafelki ze strony głównej Lidla
 LIDL_MAIN_TILES = [
     {"name": "Promocje", "url": "https://www.lidl.pl/q/query/wyprzedaz"},
     {"name": "Dom i wyposażenie wnętrz", "url": "https://www.lidl.pl/c/dom-i-wyposazenie-wnetrz/s10067762"},
@@ -45,7 +44,7 @@ def fetch_single_tile(tile):
     main_url = tile["url"]
     tile_categories = []
 
-    # Każda kategoria ZAWSZE dostaje jako pierwszą opcję "Wszystkie produkty"
+    # Gwarantowana kategoria "Wszystkie produkty" dla każdego działu
     tile_categories.append({
         "id": main_url,
         "name": f"{main_name} > Wszystkie produkty",
@@ -57,8 +56,8 @@ def fetch_single_tile(tile):
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Selektory wyciągnięte dokładnie z Twojego DevTools (.ANavigationPill i pigułki)
-            sub_links = soup.select("a.ANavigationPill, a.odsc-link-action, li.ux-base-slider__slide a, .odsc-link-action__element")
+            # Pobieranie WSZYSTKICH elementów slidera (z uwzględnieniem pigułek z /h/ i /c/)
+            sub_links = soup.select("li.ux-base-slider__slide a, a.ANavigationPill, a.odsc-link-action")
             
             for link_el in sub_links:
                 a_tag = link_el if link_el.name == "a" else link_el.find_parent("a")
@@ -106,15 +105,16 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
     wszystkie_produkty = []
     seen_urls = set()
     pominiete_duplikaty = 0
-    page = 1
+    offset = 0
     total_estimated = 100
 
     while True:
         if max_products and len(wszystkie_produkty) >= max_products:
             break
 
-        # Obsługa paginacji
-        page_url = f"{category_url}?page={page}" if page > 1 else category_url
+        # Prawidłowa paginacja offsetowa Lidla (co 48 produktów)
+        sep = "&" if "?" in category_url else "?"
+        page_url = f"{category_url}{sep}offset={offset}" if offset > 0 else category_url
         print(f"Scrapuję podstronę Lidla: {page_url}")
 
         try:
@@ -124,7 +124,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
 
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Karty produktów dopasowane precyzyjnie do DevTools (np. li[id*='grid-item'])
+            # Szukamy kart produktów (elementy li z gridu lub klas tile)
             product_cards = soup.select("li[id*='grid-item'], article.product-grid-box, li.s-grid__item, div[data-product-id]")
 
             if not product_cards:
@@ -135,7 +135,6 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 if max_products and len(wszystkie_produkty) >= max_products:
                     break
 
-                # Link i pełna nazwa z odnośnika odczytanego w DevTools (.odsc-tile__link)
                 link_el = card.select_one("a.odsc-tile__link, a[href]")
                 if not link_el:
                     continue
@@ -143,23 +142,20 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 href = link_el.get("href", "")
                 pelny_url = href if href.startswith("http") else f"https://www.lidl.pl{href}"
 
-                # Wyciąganie nazwy i ceny z linku/artykułu
-                raw_text = link_el.get_text(strip=True)
-                
                 if pelny_url in seen_urls:
                     pominiete_duplikaty += 1
                     continue
                 seen_urls.add(pelny_url)
 
-                # Wyciąganie nazwy produktu i ceny
+                raw_text = link_el.get_text(strip=True)
+
+                # Wyciąganie nazwy oraz ceny z ciągu tekstu karty
                 price_match = re.search(r"dla\s+([\d\.,]+)\s*PLN", raw_text)
                 if price_match:
                     cena_str = price_match.group(1).replace(",", ".")
                     nazwa = raw_text.split("dla")[0].strip()
-                    # Usunięcie ID produktu z końca nazwy jeśli występuje
                     nazwa = re.sub(r"\d+$", "", nazwa).strip()
                 else:
-                    # Alternatywne pobranie ceny ze zwykłych znaczników ceny
                     title_el = card.select_one("h2, .grid-box__title, [class*='title']")
                     nazwa = title_el.get_text(strip=True) if title_el else raw_text
                     price_el = card.select_one("[class*='price']")
@@ -175,7 +171,7 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
                 if not nazwa or len(nazwa) < 2:
                     continue
 
-                # Zdjęcie produktu
+                # Zdjęcie
                 img_el = card.select_one("img")
                 photo_url = ""
                 if img_el:
@@ -197,14 +193,15 @@ def extract_lidl_products(category_url, max_products=None, progress_callback=Non
             if progress_callback:
                 progress_callback(len(wszystkie_produkty), max(total_estimated, len(wszystkie_produkty)), pominiete_duplikaty)
 
+            # Jeśli na danej stronie nie było nowych produktów, kończymy
             if pobrane_na_stronie == 0:
                 break
 
-            page += 1
+            offset += 48
             time.sleep(0.4)
 
         except Exception as e:
-            print(f"Błąd podczas scrapowania Lidla (strona {page}): {e}")
+            print(f"Błąd podczas scrapowania Lidla (offset {offset}): {e}")
             break
 
     return wszystkie_produkty
